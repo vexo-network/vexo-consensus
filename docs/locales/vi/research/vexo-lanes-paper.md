@@ -104,7 +104,7 @@ VEXO_DISSEMINATION=proposals VEXO_THROUGHPUT=150000 VEXO_VALIDATORS=4 VEXO_UPLIN
 
 ## Thay đổi kể từ khi đo
 
-Trong các lần chạy được đo, validator yêu cầu toàn bộ proposal 300 ms sau khi bắt đầu chờ batch. Giờ đây việc chờ bắt đầu lại mỗi khi một batch mà proposal nêu tên đến, và toàn bộ proposal chỉ được yêu cầu sau 300 ms không có batch nào hoặc sau tổng cộng 2 s (`maxLaneWait`); ma trận chưa được đo lại. Phép đo dùng ứng dụng thử nghiệm không có chữ ký, ante handler, WAL của mempool hay LevelDB. Với stack sản xuất (`VEXO_APP=runtime`: chuyển khoản đã ký 288 byte, ante handler, WAL của mempool, LevelDB), 4 validator không định hình trên cùng máy commit 50.000 chuyển khoản ở khoảng 2.000–2.200 tx/s; trong CPU profile, thực thi khối chiếm ưu thế, chủ yếu là cập nhật và đọc cây trạng thái của store LevelDB.
+Trong các lần chạy được đo, validator yêu cầu toàn bộ proposal 300 ms sau khi bắt đầu chờ batch. Giờ đây việc chờ bắt đầu lại mỗi khi một batch mà proposal nêu tên đến, và toàn bộ proposal chỉ được yêu cầu sau 300 ms không có batch nào hoặc sau tổng cộng 2 s (`maxLaneWait`); ma trận chưa được đo lại. Phép đo dùng ứng dụng thử nghiệm không có chữ ký, ante handler, WAL của mempool hay LevelDB. Với stack sản xuất (`VEXO_APP=runtime`: chuyển khoản đã ký 288 byte, ante handler, WAL của mempool, store Pebble), 4 validator không shaping trên cùng một host commit 50.000 chuyển khoản ở khoảng 1.200–2.200 tx/s tùy tải của host; các lần chạy xen kẽ với bản build LevelDB trước cho 1.960 so với 1.916 và 1.411 so với 1.279 tx/s, nên không phải backend giới hạn tải này. Trong CPU profile, thực thi khối chiếm ưu thế, chủ yếu là cập nhật state tree và các lần đọc điểm node của cây và các phiên bản của chúng.
 
 <!-- vexo-docs:technical-parity -->
 

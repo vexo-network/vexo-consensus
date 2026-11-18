@@ -43,7 +43,7 @@ func TestWriteStatus(t *testing.T) {
 		"data_availability.commitments: true",
 		"data_availability.reed_solomon_recovery: true",
 		"data_availability.deterministic_sampling: true",
-		"storage.backend: leveldb",
+		"storage.backend: pebble",
 		"state_sync.snapshot_kv: true",
 		"state_sync.snapshot_checksum: true",
 		"state_sync.snapshot_verify: true",
@@ -147,7 +147,7 @@ func TestWriteStatusJSON(t *testing.T) {
 	if document.Execution.FeeDenom != "avxo" || document.Execution.DisplayDenom != "vexo" || document.Execution.DisplayExponent != 18 || document.Execution.GasDenom != "gas" || document.Execution.AllowUnprotectedLegacyTx || document.Execution.RPCGasCap != config.DefaultRPCGasCap {
 		t.Fatalf("unexpected execution status: %+v", document.Execution)
 	}
-	if document.Storage.Backend != "leveldb" {
+	if document.Storage.Backend != "pebble" {
 		t.Fatalf("unexpected storage status: %+v", document.Storage)
 	}
 	expectedFeatures := []string{

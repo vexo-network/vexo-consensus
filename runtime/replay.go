@@ -83,7 +83,7 @@ func (runtime *Runtime) replayFromFreshStore(ctx context.Context, from types.Hei
 		return ReplayResult{}, err
 	}
 	defer os.RemoveAll(tempDir)
-	replayStore, err := store.OpenLevelDB(tempDir)
+	replayStore, err := store.OpenPebble(tempDir)
 	if err != nil {
 		return ReplayResult{}, err
 	}
@@ -113,7 +113,7 @@ func (runtime *Runtime) replayFromFreshStore(ctx context.Context, from types.Hei
 // replay. Modules that judge past events, such as evidence, read the validator set of the height
 // they judge from state; a lookup returns the latest snapshot at or below that height, so snapshots
 // of later heights are never read by an earlier block.
-func (runtime *Runtime) importValidatorRegistry(ctx context.Context, height types.Height, replayStore *store.LevelDBStore) error {
+func (runtime *Runtime) importValidatorRegistry(ctx context.Context, height types.Height, replayStore *store.PebbleStore) error {
 	pairs, err := runtime.Store.ExportNamespaceAt(ctx, height, validator.RegistryNamespace)
 	if err != nil {
 		return err
@@ -165,7 +165,7 @@ func (runtime *Runtime) ReplayFromHistoricalSnapshot(ctx context.Context, from t
 		return ReplayResult{}, err
 	}
 	defer os.RemoveAll(tempDir)
-	replayStore, err := store.OpenLevelDB(tempDir)
+	replayStore, err := store.OpenPebble(tempDir)
 	if err != nil {
 		return ReplayResult{}, err
 	}

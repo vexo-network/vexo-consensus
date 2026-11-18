@@ -3,8 +3,8 @@ package store
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
+	"github.com/cockroachdb/pebble/v2"
 	"testing"
 
 	"github.com/vexo-network/vexo-consensus/slashing"
@@ -12,7 +12,7 @@ import (
 	"github.com/vexo-network/vexo-consensus/upgrade"
 )
 
-func TestLevelDBStoreSavesAndLoadsBlockByHeightAndHash(t *testing.T) {
+func TestPebbleStoreSavesAndLoadsBlockByHeightAndHash(t *testing.T) {
 	store := openTestStore(t)
 	defer closeStore(t, store)
 
@@ -60,8 +60,8 @@ func TestLevelDBStoreSavesAndLoadsBlockByHeightAndHash(t *testing.T) {
 	}
 }
 
-func TestOpenLevelDBDefaultsToSynchronousWrites(t *testing.T) {
-	store, err := OpenLevelDB(t.TempDir())
+func TestOpenPebbleDefaultsToSynchronousWrites(t *testing.T) {
+	store, err := OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,8 +71,8 @@ func TestOpenLevelDBDefaultsToSynchronousWrites(t *testing.T) {
 	}
 }
 
-func TestOpenLevelDBWithOptionsCanDisableSynchronousWrites(t *testing.T) {
-	store, err := OpenLevelDBWithOptions(t.TempDir(), LevelDBOptions{SyncWrites: false})
+func TestOpenPebbleWithOptionsCanDisableSynchronousWrites(t *testing.T) {
+	store, err := OpenPebbleWithOptions(t.TempDir(), PebbleOptions{SyncWrites: false})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestOpenLevelDBWithOptionsCanDisableSynchronousWrites(t *testing.T) {
 	}
 }
 
-func TestLevelDBStoreCommitBlockStatePersistsBlockStateAndRootsAtomically(t *testing.T) {
+func TestPebbleStoreCommitBlockStatePersistsBlockStateAndRootsAtomically(t *testing.T) {
 	store := openTestStore(t)
 	defer closeStore(t, store)
 
@@ -131,7 +131,7 @@ func TestLevelDBStoreCommitBlockStatePersistsBlockStateAndRootsAtomically(t *tes
 	}
 }
 
-func TestLevelDBStoreCommitBlockStateWithWritesPersistsKVAndMetadataAtomically(t *testing.T) {
+func TestPebbleStoreCommitBlockStateWithWritesPersistsKVAndMetadataAtomically(t *testing.T) {
 	store := openTestStore(t)
 	defer closeStore(t, store)
 	block := BlockRecord{
@@ -178,7 +178,7 @@ func TestLevelDBStoreCommitBlockStateWithWritesPersistsKVAndMetadataAtomically(t
 	}
 }
 
-func TestLevelDBStoreGetAtReadsVersionedKVHistory(t *testing.T) {
+func TestPebbleStoreGetAtReadsVersionedKVHistory(t *testing.T) {
 	store := openTestStore(t)
 	defer closeStore(t, store)
 	ctx := context.Background()
@@ -220,7 +220,7 @@ func TestLevelDBStoreGetAtReadsVersionedKVHistory(t *testing.T) {
 	}
 }
 
-func commitVersionedKVForTest(t *testing.T, store *LevelDBStore, height types.Height, value []byte, deleted bool) {
+func commitVersionedKVForTest(t *testing.T, store *PebbleStore, height types.Height, value []byte, deleted bool) {
 	t.Helper()
 	write := KVWrite{Namespace: "bank", Key: []byte("alice"), Value: value, Delete: deleted}
 	root, err := store.RootWithWrites(context.Background(), "bank", []KVWrite{write})
@@ -238,7 +238,7 @@ func commitVersionedKVForTest(t *testing.T, store *LevelDBStore, height types.He
 	}
 }
 
-func TestLevelDBStorePersistsSchemaState(t *testing.T) {
+func TestPebbleStorePersistsSchemaState(t *testing.T) {
 	store := openTestStore(t)
 	defer closeStore(t, store)
 
@@ -261,7 +261,7 @@ func TestLevelDBStorePersistsSchemaState(t *testing.T) {
 	}
 }
 
-func TestLevelDBStorePersistsUpgradePlansByHeightAndName(t *testing.T) {
+func TestPebbleStorePersistsUpgradePlansByHeightAndName(t *testing.T) {
 	store := openTestStore(t)
 	defer closeStore(t, store)
 
@@ -344,7 +344,7 @@ func TestSaveUpgradePlanRejectsAPlanTheChainAlreadyReached(t *testing.T) {
 	}
 }
 
-func TestLevelDBStoreBlockIndexTracksRangeAndUniqueBlocks(t *testing.T) {
+func TestPebbleStoreBlockIndexTracksRangeAndUniqueBlocks(t *testing.T) {
 	store := openTestStore(t)
 	defer closeStore(t, store)
 
@@ -368,7 +368,7 @@ func TestLevelDBStoreBlockIndexTracksRangeAndUniqueBlocks(t *testing.T) {
 	}
 }
 
-func TestLevelDBStorePruneBelow(t *testing.T) {
+func TestPebbleStorePruneBelow(t *testing.T) {
 	store := openTestStore(t)
 	defer closeStore(t, store)
 
@@ -419,7 +419,7 @@ func TestLevelDBStorePruneBelow(t *testing.T) {
 	}
 }
 
-func TestLevelDBStorePruneByRetention(t *testing.T) {
+func TestPebbleStorePruneByRetention(t *testing.T) {
 	store := openTestStore(t)
 	defer closeStore(t, store)
 
@@ -445,7 +445,7 @@ func TestLevelDBStorePruneByRetention(t *testing.T) {
 	}
 }
 
-func TestLevelDBStorePruneAllRemovesIndex(t *testing.T) {
+func TestPebbleStorePruneAllRemovesIndex(t *testing.T) {
 	store := openTestStore(t)
 	defer closeStore(t, store)
 
@@ -460,9 +460,9 @@ func TestLevelDBStorePruneAllRemovesIndex(t *testing.T) {
 	}
 }
 
-func TestLevelDBStorePersistsAcrossReopen(t *testing.T) {
+func TestPebbleStorePersistsAcrossReopen(t *testing.T) {
 	path := t.TempDir()
-	store, err := OpenLevelDB(path)
+	store, err := OpenPebble(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -478,7 +478,7 @@ func TestLevelDBStorePersistsAcrossReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reopened, err := OpenLevelDB(path)
+	reopened, err := OpenPebble(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -493,7 +493,7 @@ func TestLevelDBStorePersistsAcrossReopen(t *testing.T) {
 	}
 }
 
-func TestLevelDBStoreSavesAndLoadsLatestState(t *testing.T) {
+func TestPebbleStoreSavesAndLoadsLatestState(t *testing.T) {
 	store := openTestStore(t)
 	defer closeStore(t, store)
 
@@ -516,7 +516,7 @@ func TestLevelDBStoreSavesAndLoadsLatestState(t *testing.T) {
 	}
 }
 
-func TestLevelDBStoreRejectsTamperedBlockRecordHeight(t *testing.T) {
+func TestPebbleStoreRejectsTamperedBlockRecordHeight(t *testing.T) {
 	store := openTestStore(t)
 	defer closeStore(t, store)
 
@@ -528,11 +528,8 @@ func TestLevelDBStoreRejectsTamperedBlockRecordHeight(t *testing.T) {
 		t.Fatal(err)
 	}
 	record.Block.Header.Height = 2
-	encoded, err := json.Marshal(record)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.db.Put(blockHeightKey(1), encoded, nil); err != nil {
+	encoded := encodeBlockRecord(record)
+	if err := store.db.Set(blockHeightKey(1), encoded, pebble.Sync); err != nil {
 		t.Fatal(err)
 	}
 
@@ -544,7 +541,7 @@ func TestLevelDBStoreRejectsTamperedBlockRecordHeight(t *testing.T) {
 	}
 }
 
-func TestLevelDBStoreRejectsTamperedBlockRecordHash(t *testing.T) {
+func TestPebbleStoreRejectsTamperedBlockRecordHash(t *testing.T) {
 	store := openTestStore(t)
 	defer closeStore(t, store)
 
@@ -556,11 +553,8 @@ func TestLevelDBStoreRejectsTamperedBlockRecordHash(t *testing.T) {
 		t.Fatal(err)
 	}
 	record.Hash = types.Hash{2}
-	encoded, err := json.Marshal(record)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.db.Put(blockHashKey(types.Hash{1}), encoded, nil); err != nil {
+	encoded := encodeBlockRecord(record)
+	if err := store.db.Set(blockHashKey(types.Hash{1}), encoded, pebble.Sync); err != nil {
 		t.Fatal(err)
 	}
 
@@ -569,7 +563,7 @@ func TestLevelDBStoreRejectsTamperedBlockRecordHash(t *testing.T) {
 	}
 }
 
-func TestLevelDBStoreRejectsTamperedStateAndRootRecords(t *testing.T) {
+func TestPebbleStoreRejectsTamperedStateAndRootRecords(t *testing.T) {
 	store := openTestStore(t)
 	defer closeStore(t, store)
 
@@ -579,18 +573,12 @@ func TestLevelDBStoreRejectsTamperedStateAndRootRecords(t *testing.T) {
 	if err := store.SaveStateRoot(context.Background(), StateRootRecord{Height: 1, Namespace: "bank", Root: types.Hash{2}}); err != nil {
 		t.Fatal(err)
 	}
-	encodedState, err := json.Marshal(StateRecord{Height: 2, AppHash: types.Hash{1}})
-	if err != nil {
+	encodedState := encodeStateRecord(StateRecord{Height: 2, AppHash: types.Hash{1}})
+	if err := store.db.Set(stateHeightKey(1), encodedState, pebble.Sync); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.db.Put(stateHeightKey(1), encodedState, nil); err != nil {
-		t.Fatal(err)
-	}
-	encodedRoot, err := json.Marshal(StateRootRecord{Height: 1, Namespace: "staking", Root: types.Hash{2}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.db.Put(stateRootKey(1, "bank"), encodedRoot, nil); err != nil {
+	encodedRoot := encodeStateRootRecord(StateRootRecord{Height: 1, Namespace: "staking", Root: types.Hash{2}})
+	if err := store.db.Set(stateRootKey(1, "bank"), encodedRoot, pebble.Sync); err != nil {
 		t.Fatal(err)
 	}
 
@@ -602,7 +590,7 @@ func TestLevelDBStoreRejectsTamperedStateAndRootRecords(t *testing.T) {
 	}
 }
 
-func TestLevelDBStoreSavesVersionedStateByHeight(t *testing.T) {
+func TestPebbleStoreSavesVersionedStateByHeight(t *testing.T) {
 	store := openTestStore(t)
 	defer closeStore(t, store)
 
@@ -633,7 +621,7 @@ func TestLevelDBStoreSavesVersionedStateByHeight(t *testing.T) {
 	}
 }
 
-func TestLevelDBStoreSavesAndLoadsStateRootByHeight(t *testing.T) {
+func TestPebbleStoreSavesAndLoadsStateRootByHeight(t *testing.T) {
 	store := openTestStore(t)
 	defer closeStore(t, store)
 
@@ -655,7 +643,7 @@ func TestLevelDBStoreSavesAndLoadsStateRootByHeight(t *testing.T) {
 	}
 }
 
-func TestLevelDBStoreStateRootKeepsHeightsSeparate(t *testing.T) {
+func TestPebbleStoreStateRootKeepsHeightsSeparate(t *testing.T) {
 	store := openTestStore(t)
 	defer closeStore(t, store)
 
@@ -679,7 +667,7 @@ func TestLevelDBStoreStateRootKeepsHeightsSeparate(t *testing.T) {
 	}
 }
 
-func TestLevelDBStoreNotFound(t *testing.T) {
+func TestPebbleStoreNotFound(t *testing.T) {
 	store := openTestStore(t)
 	defer closeStore(t, store)
 
@@ -706,7 +694,7 @@ func TestLevelDBStoreNotFound(t *testing.T) {
 	}
 }
 
-func TestLevelDBStoreRejectsInvalidRecords(t *testing.T) {
+func TestPebbleStoreRejectsInvalidRecords(t *testing.T) {
 	store := openTestStore(t)
 	defer closeStore(t, store)
 
@@ -730,7 +718,7 @@ func TestLevelDBStoreRejectsInvalidRecords(t *testing.T) {
 	}
 }
 
-func TestLevelDBStoreContextCancellation(t *testing.T) {
+func TestPebbleStoreContextCancellation(t *testing.T) {
 	store := openTestStore(t)
 	defer closeStore(t, store)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -790,7 +778,7 @@ func TestLevelDBStoreContextCancellation(t *testing.T) {
 	}
 }
 
-func TestLevelDBStoreKVSetGetDelete(t *testing.T) {
+func TestPebbleStoreKVSetGetDelete(t *testing.T) {
 	store := openTestStore(t)
 	defer closeStore(t, store)
 
@@ -820,7 +808,7 @@ func TestLevelDBStoreKVSetGetDelete(t *testing.T) {
 	}
 }
 
-func TestLevelDBStoreRootReflectsNamespaceState(t *testing.T) {
+func TestPebbleStoreRootReflectsNamespaceState(t *testing.T) {
 	store := openTestStore(t)
 	defer closeStore(t, store)
 
@@ -873,7 +861,7 @@ func TestLevelDBStoreRootReflectsNamespaceState(t *testing.T) {
 	}
 }
 
-func TestLevelDBStoreExportsAndImportsNamespace(t *testing.T) {
+func TestPebbleStoreExportsAndImportsNamespace(t *testing.T) {
 	source := openTestStore(t)
 	defer closeStore(t, source)
 	if err := source.Set(context.Background(), "bank", []byte("alice"), []byte("100")); err != nil {
@@ -921,7 +909,7 @@ func TestLevelDBStoreExportsAndImportsNamespace(t *testing.T) {
 	}
 }
 
-func TestLevelDBStoreExportsPrefix(t *testing.T) {
+func TestPebbleStoreExportsPrefix(t *testing.T) {
 	storage := openTestStore(t)
 	defer closeStore(t, storage)
 
@@ -948,7 +936,7 @@ func TestLevelDBStoreExportsPrefix(t *testing.T) {
 	}
 }
 
-func TestLevelDBStoreRootRejectsInvalidNamespace(t *testing.T) {
+func TestPebbleStoreRootRejectsInvalidNamespace(t *testing.T) {
 	store := openTestStore(t)
 	defer closeStore(t, store)
 
@@ -957,7 +945,7 @@ func TestLevelDBStoreRootRejectsInvalidNamespace(t *testing.T) {
 	}
 }
 
-func TestLevelDBStoreKVRejectsInvalidNamespaceAndKey(t *testing.T) {
+func TestPebbleStoreKVRejectsInvalidNamespaceAndKey(t *testing.T) {
 	store := openTestStore(t)
 	defer closeStore(t, store)
 
@@ -981,7 +969,7 @@ func TestLevelDBStoreKVRejectsInvalidNamespaceAndKey(t *testing.T) {
 	}
 }
 
-func TestLevelDBStoreSavesAndLoadsEvidence(t *testing.T) {
+func TestPebbleStoreSavesAndLoadsEvidence(t *testing.T) {
 	store := openTestStore(t)
 	defer closeStore(t, store)
 
@@ -1023,7 +1011,7 @@ func TestLevelDBStoreSavesAndLoadsEvidence(t *testing.T) {
 	}
 }
 
-func TestLevelDBStoreRejectsInvalidEvidenceRecord(t *testing.T) {
+func TestPebbleStoreRejectsInvalidEvidenceRecord(t *testing.T) {
 	store := openTestStore(t)
 	defer closeStore(t, store)
 
@@ -1041,9 +1029,9 @@ func TestLevelDBStoreRejectsInvalidEvidenceRecord(t *testing.T) {
 	}
 }
 
-func TestLevelDBStorePersistsFinalityProofs(t *testing.T) {
+func TestPebbleStorePersistsFinalityProofs(t *testing.T) {
 	path := t.TempDir()
-	storage, err := OpenLevelDB(path)
+	storage, err := OpenPebble(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1064,7 +1052,7 @@ func TestLevelDBStorePersistsFinalityProofs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reopened, err := OpenLevelDB(path)
+	reopened, err := OpenPebble(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1085,7 +1073,7 @@ func TestLevelDBStorePersistsFinalityProofs(t *testing.T) {
 	}
 }
 
-func TestLevelDBStoreRejectsInvalidFinalityProof(t *testing.T) {
+func TestPebbleStoreRejectsInvalidFinalityProof(t *testing.T) {
 	storage := openTestStore(t)
 	defer closeStore(t, storage)
 
@@ -1154,7 +1142,7 @@ func twoChainFinalityRecord() FinalityProofRecord {
 
 // The commit link of a stored finality proof is the child of the block certified by its own quorum
 // certificate in the next view; anything else is not a 2-chain commit proof.
-func TestLevelDBStoreValidatesTwoChainCommitLink(t *testing.T) {
+func TestPebbleStoreValidatesTwoChainCommitLink(t *testing.T) {
 	storage := openTestStore(t)
 	defer closeStore(t, storage)
 
@@ -1216,7 +1204,7 @@ func TestLevelDBStoreValidatesTwoChainCommitLink(t *testing.T) {
 	}
 }
 
-func TestLevelDBStoreRecoverIndexesRebuildsAfterCrash(t *testing.T) {
+func TestPebbleStoreRecoverIndexesRebuildsAfterCrash(t *testing.T) {
 	store := openTestStore(t)
 	defer closeStore(t, store)
 
@@ -1236,7 +1224,7 @@ func TestLevelDBStoreRecoverIndexesRebuildsAfterCrash(t *testing.T) {
 	if err := store.SaveEvidence(context.Background(), evidence); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.db.Delete(blockIndexKey, nil); err != nil {
+	if err := store.db.Delete(blockIndexKey, pebble.Sync); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.BlockIndex(context.Background()); !errors.Is(err, ErrBlockIndexNotFound) {
@@ -1266,7 +1254,7 @@ func TestLevelDBStoreRecoverIndexesRebuildsAfterCrash(t *testing.T) {
 	}
 }
 
-func TestLevelDBStoreCompacts(t *testing.T) {
+func TestPebbleStoreCompacts(t *testing.T) {
 	store := openTestStore(t)
 	defer closeStore(t, store)
 
@@ -1278,16 +1266,16 @@ func TestLevelDBStoreCompacts(t *testing.T) {
 	}
 }
 
-func openTestStore(t *testing.T) *LevelDBStore {
+func openTestStore(t *testing.T) *PebbleStore {
 	t.Helper()
-	store, err := OpenLevelDB(t.TempDir())
+	store, err := OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	return store
 }
 
-func closeStore(t *testing.T, store *LevelDBStore) {
+func closeStore(t *testing.T, store *PebbleStore) {
 	t.Helper()
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
@@ -1330,7 +1318,7 @@ func TestSaveEvidenceWritesOnlyItsOwnRecord(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := store.db.Get([]byte("evidence:index"), nil); err == nil {
+	if _, err := getValue(store.db, []byte("evidence:index")); err == nil {
 		t.Fatal("an evidence index record exists; every save would rewrite it")
 	}
 	keys, err := store.EvidenceIndex(context.Background())
@@ -1421,5 +1409,19 @@ func TestEvidenceByKeyReportsCorruptRecords(t *testing.T) {
 	}
 	if _, err := store.EvidenceIndex(context.Background()); !errors.Is(err, ErrEvidenceNotFound) {
 		t.Fatalf("expected an empty pool after deleting the corrupt record, got %v", err)
+	}
+}
+
+// A store closes once; closing it again is not an error.
+func TestPebbleStoreClosesTwice(t *testing.T) {
+	storage, err := OpenPebble(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Close(); err != nil {
+		t.Fatalf("expected a second close to do nothing, got %v", err)
 	}
 }

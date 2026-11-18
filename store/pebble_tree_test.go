@@ -7,13 +7,12 @@ import (
 	"math/rand"
 	"testing"
 
-	"github.com/syndtr/goleveldb/leveldb/util"
 	"github.com/vexo-network/vexo-consensus/stateproof"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
 // fullRoot recomputes the root of namespace from every pair the store holds.
-func fullRoot(t *testing.T, storage *LevelDBStore, namespace string) types.Hash {
+func fullRoot(t *testing.T, storage *PebbleStore, namespace string) types.Hash {
 	t.Helper()
 	pairs, err := storage.ExportNamespace(context.Background(), namespace)
 	if err != nil {
@@ -30,7 +29,7 @@ func fullRoot(t *testing.T, storage *LevelDBStore, namespace string) types.Hash 
 // namespace imports, and always has the root of the pairs it holds.
 func TestStoreStateTreeFollowsEveryWrite(t *testing.T) {
 	ctx := context.Background()
-	storage, err := OpenLevelDB(t.TempDir())
+	storage, err := OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +108,7 @@ func TestStoreStateTreeFollowsEveryWrite(t *testing.T) {
 // the namespace root; it is the proof the pairs of the namespace give.
 func TestStoreProvesKeysFromItsStateTree(t *testing.T) {
 	ctx := context.Background()
-	storage, err := OpenLevelDB(t.TempDir())
+	storage, err := OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +150,7 @@ func BenchmarkCommitIntoALargeNamespace(b *testing.B) {
 	for _, size := range []int{1_000, 50_000} {
 		b.Run(fmt.Sprintf("keys=%d", size), func(b *testing.B) {
 			ctx := context.Background()
-			storage, err := OpenLevelDBWithOptions(b.TempDir(), LevelDBOptions{})
+			storage, err := OpenPebbleWithOptions(b.TempDir(), PebbleOptions{})
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -189,7 +188,7 @@ func BenchmarkCommitIntoALargeNamespace(b *testing.B) {
 // keeps every retained height provable and refuses the pruned ones.
 func TestStoreProvesKeysAtPastHeightsFromTreeVersions(t *testing.T) {
 	ctx := context.Background()
-	storage, err := OpenLevelDB(t.TempDir())
+	storage, err := OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -275,7 +274,7 @@ func TestStoreProvesKeysAtPastHeightsFromTreeVersions(t *testing.T) {
 // pairs ExportNamespaceAt returns, including keys holding zero bytes.
 func TestExportRangeAtPagesThroughAPastState(t *testing.T) {
 	ctx := context.Background()
-	storage, err := OpenLevelDB(t.TempDir())
+	storage, err := OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -346,7 +345,7 @@ func TestExportRangeAtPagesThroughAPastState(t *testing.T) {
 // whatever it held before; pairs out of key order are refused.
 func TestNamespaceImportWritesPagesIntoAFreshTree(t *testing.T) {
 	ctx := context.Background()
-	storage, err := OpenLevelDB(t.TempDir())
+	storage, err := OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -396,8 +395,8 @@ func TestNamespaceImportWritesPagesIntoAFreshTree(t *testing.T) {
 // the index holds no more entries than there are versions.
 func TestPruningInStepsMatchesOnePrune(t *testing.T) {
 	ctx := context.Background()
-	build := func() *LevelDBStore {
-		storage, err := OpenLevelDB(t.TempDir())
+	build := func() *PebbleStore {
+		storage, err := OpenPebble(t.TempDir())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -427,11 +426,11 @@ func TestPruningInStepsMatchesOnePrune(t *testing.T) {
 		}
 		return storage
 	}
-	count := func(storage *LevelDBStore, prefix []byte) int {
-		iterator := storage.db.NewIterator(util.BytesPrefix(prefix), nil)
-		defer iterator.Release()
+	count := func(storage *PebbleStore, prefix []byte) int {
+		iterator := newIter(storage.db, prefixRange(prefix))
+		defer iterator.Close()
 		total := 0
-		for iterator.Next() {
+		for valid := iterator.First(); valid; valid = iterator.Next() {
 			total++
 		}
 		return total

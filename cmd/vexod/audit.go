@@ -127,7 +127,7 @@ func buildAuditPackDocument() auditPackDocument {
 			"p2p handshake, peer scoring, reconnect/backoff, rate-limit and ban behavior",
 			"RPC admin authorization, strict JSON decoding, request limits and pprof exposure",
 			"key management, local encrypted keys, remote signer/KMS documents and signing flow",
-			"state sync snapshot export/verify/restore and LevelDB recovery/pruning",
+			"state sync snapshot export/verify/restore and Pebble recovery/pruning",
 			"fuzz targets for tx envelopes, wire messages, DA, fair ordering, mempool and RPC decoders",
 		},
 		Commands: []string{

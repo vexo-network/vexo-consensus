@@ -115,7 +115,7 @@ func runSnapshotExport(writer io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	storage, err := store.OpenLevelDB(cfg.StoreDir())
+	storage, err := store.OpenPebble(cfg.StoreDir())
 	if err != nil {
 		return err
 	}
@@ -715,7 +715,7 @@ func restoreSnapshot(ctx context.Context, storeDir string, source snapshotSource
 // pairs imported. The block is saved without its quorum certificate: the hash links from the
 // trusted anchor prove the block, not the certificate a source hands over.
 func importSnapshot(ctx context.Context, dir string, source snapshotSource, manifest snapshotManifest) (uint64, error) {
-	target, err := store.OpenLevelDB(dir)
+	target, err := store.OpenPebble(dir)
 	if err != nil {
 		return 0, err
 	}

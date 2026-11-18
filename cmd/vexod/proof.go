@@ -291,7 +291,7 @@ func runProofQuery(writer io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	storage, err := store.OpenLevelDB(cfg.StoreDir())
+	storage, err := store.OpenPebble(cfg.StoreDir())
 	if err != nil {
 		return err
 	}
@@ -434,7 +434,7 @@ func runProofVerifyIBC(writer io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	storage, err := store.OpenLevelDB(cfg.StoreDir())
+	storage, err := store.OpenPebble(cfg.StoreDir())
 	if err != nil {
 		return err
 	}

@@ -28,9 +28,9 @@ const (
 	securityTarget   = types.Address("0x0000000000000000000000000000000000003333")
 )
 
-func openSecurityStore(t *testing.T) *store.LevelDBStore {
+func openSecurityStore(t *testing.T) *store.PebbleStore {
 	t.Helper()
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -616,7 +616,7 @@ func TestQueryCallGasIsCappedAndTracingIsOptIn(t *testing.T) {
 
 func TestLogsQueryReadsOnlyTheRequestedBlocks(t *testing.T) {
 	storage := openSecurityStore(t)
-	counting := &countingPrefixStore{LevelDBStore: storage}
+	counting := &countingPrefixStore{PebbleStore: storage}
 	emitter := types.Address("0x000000000000000000000000000000000000AbCd")
 	for height := uint64(1); height <= 40; height++ {
 		hash := "0x" + strings.Repeat("0", 62) + hex.EncodeToString([]byte{byte(height)})
@@ -705,7 +705,7 @@ func TestLogsQueryReadsOnlyTheRequestedBlocks(t *testing.T) {
 // return, so a busy range costs no more than the result it is allowed to produce.
 func TestLogsQueryFiltersTopicsAndStopsAtItsLimit(t *testing.T) {
 	storage := openSecurityStore(t)
-	counting := &countingPrefixStore{LevelDBStore: storage}
+	counting := &countingPrefixStore{PebbleStore: storage}
 	emitter := types.Address("0x000000000000000000000000000000000000AbCd")
 	for height := uint64(1); height <= 20; height++ {
 		hash := "0x" + strings.Repeat("0", 62) + hex.EncodeToString([]byte{byte(height)})
@@ -783,11 +783,11 @@ func TestLogsQueryFiltersTopicsAndStopsAtItsLimit(t *testing.T) {
 
 // countingPrefixStore counts the prefix scans a query performs.
 type countingPrefixStore struct {
-	*store.LevelDBStore
+	*store.PebbleStore
 	scans int
 }
 
 func (counting *countingPrefixStore) ExportPrefix(ctx context.Context, namespace string, prefix []byte) ([]store.KVPair, error) {
 	counting.scans++
-	return counting.LevelDBStore.ExportPrefix(ctx, namespace, prefix)
+	return counting.PebbleStore.ExportPrefix(ctx, namespace, prefix)
 }

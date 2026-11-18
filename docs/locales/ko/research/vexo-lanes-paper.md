@@ -198,7 +198,7 @@ VEXO_DISSEMINATION=proposals VEXO_THROUGHPUT=150000 VEXO_VALIDATORS=4 VEXO_UPLIN
 
 ## 측정 이후 바뀐 점
 
-측정 당시 validator는 batch를 기다리기 시작하고 300 ms 뒤 전체 proposal을 요청했습니다. 지금은 proposal이 가리키는 batch가 도착할 때마다 대기가 다시 시작되고, batch 없이 300 ms가 지나거나 총 2 s(`maxLaneWait`)가 지나야 전체 proposal을 요청합니다. 이후 매트릭스는 다시 측정하지 않았습니다. 측정은 서명, ante handler, mempool WAL, LevelDB가 없는 테스트 애플리케이션으로 이루어졌습니다. 프로덕션 스택(`VEXO_APP=runtime`: 서명된 288바이트 transfer, ante handler, mempool WAL, LevelDB)에서는 같은 호스트의 shaping 없는 validator 4개가 50,000 transfer를 약 2,000–2,200 tx/s로 commit하며, CPU profile에서는 블록 실행, 특히 LevelDB store의 state tree 갱신과 읽기가 지배적입니다.
+측정 당시 validator는 batch를 기다리기 시작하고 300 ms 뒤 전체 proposal을 요청했습니다. 지금은 proposal이 가리키는 batch가 도착할 때마다 대기가 다시 시작되고, batch 없이 300 ms가 지나거나 총 2 s(`maxLaneWait`)가 지나야 전체 proposal을 요청합니다. 이후 매트릭스는 다시 측정하지 않았습니다. 측정은 서명, ante handler, mempool WAL, LevelDB가 없는 테스트 애플리케이션으로 이루어졌습니다. 프로덕션 스택(`VEXO_APP=runtime`: 서명된 288바이트 transfer, ante handler, mempool WAL, Pebble store)에서는 같은 호스트의 shaping 없는 validator 4개가 50,000 transfer를 호스트 부하에 따라 약 1,200–2,200 tx/s로 commit합니다. 이전 LevelDB 빌드와 번갈아 실행한 결과는 1,960 대 1,916, 1,411 대 1,279 tx/s여서 이 워크로드를 제한하는 것은 백엔드가 아닙니다. CPU profile에서는 블록 실행, 특히 state tree 갱신과 tree node 및 그 버전의 point read가 지배적입니다.
 
 <!-- vexo-docs:technical-parity -->
 

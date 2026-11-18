@@ -4,13 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"encoding/json"
 	"errors"
+	"github.com/cockroachdb/pebble/v2"
 	"math"
 
-	"github.com/syndtr/goleveldb/leveldb"
-	leveldberrors "github.com/syndtr/goleveldb/leveldb/errors"
-	"github.com/syndtr/goleveldb/leveldb/util"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
@@ -35,13 +32,13 @@ import (
 
 // historyBatch records the versions of the writes one batch applies.
 type historyBatch struct {
-	store    *LevelDBStore
-	batch    *leveldb.Batch
+	store    *PebbleStore
+	batch    *pebble.Batch
 	height   types.Height
 	baseline map[string]struct{}
 }
 
-func newHistoryBatch(store *LevelDBStore, batch *leveldb.Batch, height types.Height) *historyBatch {
+func newHistoryBatch(store *PebbleStore, batch *pebble.Batch, height types.Height) *historyBatch {
 	return &historyBatch{store: store, batch: batch, height: height, baseline: make(map[string]struct{})}
 }
 
@@ -57,9 +54,9 @@ func (history *historyBatch) record(write KVWrite) error {
 		}
 		if !versioned {
 			prior := kvHistoryRecord{Height: 0, Namespace: write.Namespace, Key: append([]byte(nil), write.Key...)}
-			value, err := history.store.db.Get(kvKey(write.Namespace, write.Key), nil)
+			value, err := getValue(history.store.db, kvKey(write.Namespace, write.Key))
 			switch {
-			case errors.Is(err, leveldberrors.ErrNotFound):
+			case errors.Is(err, pebble.ErrNotFound):
 				prior.Deleted = true
 			case err != nil:
 				return err
@@ -81,10 +78,7 @@ func (history *historyBatch) record(write KVWrite) error {
 }
 
 func (history *historyBatch) put(record kvHistoryRecord) error {
-	encoded, err := json.Marshal(record)
-	if err != nil {
-		return err
-	}
+	encoded := encodeKVHistoryRecord(record)
 	putVersion(history.batch, kvVersionIndexPrefix, kvHistoryKey(record.Height, record.Namespace, record.Key), record.Height, encoded)
 	return nil
 }
@@ -111,14 +105,14 @@ func versionIndexKey(indexPrefix []byte, height types.Height, versionKey []byte)
 }
 
 // putVersion adds to batch a version and its entry in the version index under its height.
-func putVersion(batch *leveldb.Batch, indexPrefix []byte, versionKey []byte, height types.Height, value []byte) {
-	batch.Put(versionKey, value)
-	batch.Put(versionIndexKey(indexPrefix, height, versionKey), nil)
+func putVersion(batch *pebble.Batch, indexPrefix []byte, versionKey []byte, height types.Height, value []byte) {
+	batch.Set(versionKey, value, nil)
+	batch.Set(versionIndexKey(indexPrefix, height, versionKey), nil, nil)
 }
 
-func (store *LevelDBStore) hasVersions(prefix []byte) (bool, error) {
-	iterator := store.db.NewIterator(util.BytesPrefix(prefix), nil)
-	defer iterator.Release()
+func (store *PebbleStore) hasVersions(prefix []byte) (bool, error) {
+	iterator := newIter(store.db, prefixRange(prefix))
+	defer iterator.Close()
 	found := iterator.First()
 	return found, iterator.Error()
 }
@@ -126,16 +120,16 @@ func (store *LevelDBStore) hasVersions(prefix []byte) (bool, error) {
 // directWriteHeight is the height a direct write takes effect at: the height of
 // the next committed state. Before the first committed state there is no
 // history; such writes form the base state.
-func (store *LevelDBStore) directWriteHeight() (types.Height, bool, error) {
-	encoded, err := store.db.Get(stateLatestKey, nil)
-	if errors.Is(err, leveldberrors.ErrNotFound) {
+func (store *PebbleStore) directWriteHeight() (types.Height, bool, error) {
+	encoded, err := getValue(store.db, stateLatestKey)
+	if errors.Is(err, pebble.ErrNotFound) {
 		return 0, false, nil
 	}
 	if err != nil {
 		return 0, false, err
 	}
-	var state StateRecord
-	if err := json.Unmarshal(encoded, &state); err != nil {
+	state, err := decodeStateRecord(encoded)
+	if err != nil {
 		return 0, false, err
 	}
 	if state.Height == 0 || state.Height == math.MaxUint64 {
@@ -146,7 +140,7 @@ func (store *LevelDBStore) directWriteHeight() (types.Height, bool, error) {
 
 // applyDirectWrites applies writes outside a block commit, atomically, and
 // records their versions.
-func (store *LevelDBStore) applyDirectWrites(ctx context.Context, writes []KVWrite) error {
+func (store *PebbleStore) applyDirectWrites(ctx context.Context, writes []KVWrite) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -166,7 +160,8 @@ func (store *LevelDBStore) applyDirectWrites(ctx context.Context, writes []KVWri
 	if err != nil {
 		return err
 	}
-	batch := new(leveldb.Batch)
+	batch := store.db.NewBatch()
+	defer batch.Close()
 	history := newHistoryBatch(store, batch, height)
 	trees := newStateTrees(store.db)
 	for _, write := range writes {
@@ -180,10 +175,10 @@ func (store *LevelDBStore) applyDirectWrites(ctx context.Context, writes []KVWri
 		}
 		key := kvKey(write.Namespace, write.Key)
 		if write.Delete {
-			batch.Delete(key)
+			batch.Delete(key, nil)
 			continue
 		}
-		batch.Put(key, append([]byte(nil), write.Value...))
+		batch.Set(key, append([]byte(nil), write.Value...), nil)
 	}
 	if err := trees.persist(batch, versioned, height); err != nil {
 		return err
@@ -193,11 +188,11 @@ func (store *LevelDBStore) applyDirectWrites(ctx context.Context, writes []KVWri
 
 // requireCommittedState refuses a historical read at a height whose state the
 // store does not hold: never committed, pruned, or before a restored snapshot.
-func (store *LevelDBStore) requireCommittedState(height types.Height) error {
+func (store *PebbleStore) requireCommittedState(height types.Height) error {
 	if height == 0 {
 		return ErrStateNotFound
 	}
-	found, err := store.db.Has(stateHeightKey(height), nil)
+	found, err := hasKey(store.db, stateHeightKey(height))
 	if err != nil {
 		return err
 	}
@@ -221,13 +216,13 @@ func historySeekKey(prefix []byte, height types.Height) ([]byte, bool) {
 // keys, on the highest version of the key with prefix at or below height, and
 // reports whether there is one.
 func versionAt(iterator interface {
-	Seek([]byte) bool
+	SeekGE([]byte) bool
 	Prev() bool
 	Last() bool
 	Key() []byte
 }, prefix []byte, height types.Height) bool {
 	var positioned bool
-	if seek, ok := historySeekKey(prefix, height); ok && iterator.Seek(seek) {
+	if seek, ok := historySeekKey(prefix, height); ok && iterator.SeekGE(seek) {
 		positioned = iterator.Prev()
 	} else {
 		positioned = iterator.Last()
@@ -244,8 +239,8 @@ func decodeHistoryRecord(prefix []byte, rawKey []byte, rawValue []byte, namespac
 	if !ok {
 		return kvHistoryRecord{}, ErrInvalidStateRecord
 	}
-	var record kvHistoryRecord
-	if err := json.Unmarshal(rawValue, &record); err != nil {
+	record, err := decodeKVHistoryRecord(rawValue)
+	if err != nil {
 		return kvHistoryRecord{}, err
 	}
 	if record.Height != height || record.Namespace != namespace || len(record.Key) == 0 ||
@@ -255,7 +250,7 @@ func decodeHistoryRecord(prefix []byte, rawKey []byte, rawValue []byte, namespac
 	return record, nil
 }
 
-func (store *LevelDBStore) GetAt(ctx context.Context, height types.Height, namespace string, key []byte) ([]byte, error) {
+func (store *PebbleStore) GetAt(ctx context.Context, height types.Height, namespace string, key []byte) ([]byte, error) {
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -276,14 +271,14 @@ func (store *LevelDBStore) GetAt(ctx context.Context, height types.Height, names
 // getAt reads the value of key at a committed height from reader.
 func getAt(reader dbReader, height types.Height, namespace string, key []byte) ([]byte, error) {
 	prefix := kvHistoryPrefixKey(namespace, key)
-	iterator := reader.NewIterator(util.BytesPrefix(prefix), nil)
-	defer iterator.Release()
+	iterator := newIter(reader, prefixRange(prefix))
+	defer iterator.Close()
 	if !iterator.First() {
 		if err := iterator.Error(); err != nil {
 			return nil, err
 		}
-		value, err := reader.Get(kvKey(namespace, key), nil)
-		if errors.Is(err, leveldberrors.ErrNotFound) {
+		value, err := getValue(reader, kvKey(namespace, key))
+		if errors.Is(err, pebble.ErrNotFound) {
 			return nil, ErrKeyNotFound
 		}
 		if err != nil {
@@ -307,7 +302,7 @@ func getAt(reader dbReader, height types.Height, namespace string, key []byte) (
 	return append([]byte(nil), record.Value...), nil
 }
 
-func (store *LevelDBStore) ExportNamespaceAt(ctx context.Context, height types.Height, namespace string) ([]KVPair, error) {
+func (store *PebbleStore) ExportNamespaceAt(ctx context.Context, height types.Height, namespace string) ([]KVPair, error) {
 	return store.ExportPrefixAt(ctx, height, namespace, nil)
 }
 
@@ -315,7 +310,7 @@ func (store *LevelDBStore) ExportNamespaceAt(ctx context.Context, height types.H
 // as they were at height, sorted by key. Its cost is one seek per key that ever
 // changed under the prefix plus a scan of the prefix's current pairs, however
 // many versions the keys have.
-func (store *LevelDBStore) ExportPrefixAt(ctx context.Context, height types.Height, namespace string, keyPrefix []byte) ([]KVPair, error) {
+func (store *PebbleStore) ExportPrefixAt(ctx context.Context, height types.Height, namespace string, keyPrefix []byte) ([]KVPair, error) {
 	pairs := make([]KVPair, 0)
 	err := store.historicalPairs(ctx, height, namespace, keyPrefix, nil, func(pair KVPair) bool {
 		pairs = append(pairs, pair)
@@ -331,7 +326,7 @@ func (store *LevelDBStore) ExportPrefixAt(ctx context.Context, height types.Heig
 // starting with the first key after after (the first key of the namespace for nil after). more
 // reports that pairs follow the last one returned. A page costs a seek per key it returns, so a
 // caller can stream a namespace of any size at a past height in bounded memory.
-func (store *LevelDBStore) ExportRangeAt(ctx context.Context, height types.Height, namespace string, after []byte, limit int) (pairs []KVPair, more bool, err error) {
+func (store *PebbleStore) ExportRangeAt(ctx context.Context, height types.Height, namespace string, after []byte, limit int) (pairs []KVPair, more bool, err error) {
 	if limit <= 0 {
 		return nil, false, ErrInvalidKey
 	}
@@ -356,7 +351,7 @@ func (store *LevelDBStore) ExportRangeAt(ctx context.Context, height types.Heigh
 // It merges two streams that are both in key order: the version groups of the keys that ever
 // changed, whose value at height is their highest version at or below it, and the current pairs,
 // which hold the value of every key that never changed.
-func (store *LevelDBStore) historicalPairs(ctx context.Context, height types.Height, namespace string, keyPrefix []byte, after []byte, emit func(KVPair) bool) error {
+func (store *PebbleStore) historicalPairs(ctx context.Context, height types.Height, namespace string, keyPrefix []byte, after []byte, emit func(KVPair) bool) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -368,27 +363,24 @@ func (store *LevelDBStore) historicalPairs(ctx context.Context, height types.Hei
 	if err := store.requireCommittedState(height); err != nil {
 		return err
 	}
-	snapshot, err := store.db.GetSnapshot()
-	if err != nil {
-		return err
-	}
-	defer snapshot.Release()
+	snapshot := store.db.NewSnapshot()
+	defer snapshot.Close()
 
 	namespacePrefix := kvHistoryNamespacePrefix(namespace)
-	historyRange := util.BytesPrefix(appendOrderedKeyBody(append([]byte(nil), namespacePrefix...), keyPrefix))
-	currentRange := util.BytesPrefix(append(kvNamespacePrefix(namespace), keyPrefix...))
+	historyRange := prefixRange(appendOrderedKeyBody(append([]byte(nil), namespacePrefix...), keyPrefix))
+	currentRange := prefixRange(append(kvNamespacePrefix(namespace), keyPrefix...))
 	if after != nil {
-		if start := nextHistoryKeyGroup(kvHistoryPrefixKey(namespace, after)); bytes.Compare(start, historyRange.Start) > 0 {
-			historyRange.Start = start
+		if start := nextHistoryKeyGroup(kvHistoryPrefixKey(namespace, after)); bytes.Compare(start, historyRange.lower) > 0 {
+			historyRange.lower = start
 		}
-		if start := append(kvKey(namespace, after), 0x00); bytes.Compare(start, currentRange.Start) > 0 {
-			currentRange.Start = start
+		if start := append(kvKey(namespace, after), 0x00); bytes.Compare(start, currentRange.lower) > 0 {
+			currentRange.lower = start
 		}
 	}
-	history := snapshot.NewIterator(historyRange, nil)
-	defer history.Release()
-	current := snapshot.NewIterator(currentRange, nil)
-	defer current.Release()
+	history := newIter(snapshot, historyRange)
+	defer history.Close()
+	current := newIter(snapshot, currentRange)
+	defer current.Close()
 	currentPrefix := len(kvNamespacePrefix(namespace))
 
 	type versioned struct {
@@ -413,7 +405,7 @@ func (store *LevelDBStore) historicalPairs(ctx context.Context, height types.Hei
 			entry.present = !record.Deleted
 			entry.value = record.Value
 		}
-		history.Seek(nextHistoryKeyGroup(group))
+		history.SeekGE(nextHistoryKeyGroup(group))
 		return entry, true, nil
 	}
 
@@ -497,10 +489,10 @@ func nextHistoryKeyGroup(prefix []byte) []byte {
 // index), not in the size of the history.
 //
 // The versions of the state tree nodes are pruned by the same rule.
-func (store *LevelDBStore) pruneHistoryBelow(ctx context.Context, batch *leveldb.Batch, retainFrom types.Height) (uint64, uint64, error) {
+func (store *PebbleStore) pruneHistoryBelow(ctx context.Context, batch *pebble.Batch, retainFrom types.Height) (uint64, uint64, error) {
 	pruned, err := store.pruneVersionsBelow(ctx, batch, kvVersionIndexPrefix, retainFrom, func(value []byte) (bool, error) {
-		var record kvHistoryRecord
-		if err := json.Unmarshal(value, &record); err != nil {
+		record, err := decodeKVHistoryRecord(value)
+		if err != nil {
 			return false, err
 		}
 		return record.Deleted, nil
@@ -523,11 +515,11 @@ func (store *LevelDBStore) pruneHistoryBelow(ctx context.Context, batch *leveldb
 // when it is the highest version of its key below retainFrom, a value, and followed by a version
 // above retainFrom: the heights from retainFrom up to that version read it. Without a following
 // version the current value is read, and a version at retainFrom replaces it.
-func (store *LevelDBStore) pruneVersionsBelow(ctx context.Context, batch *leveldb.Batch, indexPrefix []byte, retainFrom types.Height, deleted func([]byte) (bool, error)) (uint64, error) {
-	entries := store.db.NewIterator(&util.Range{Start: indexPrefix, Limit: versionIndexKey(indexPrefix, retainFrom, nil)}, nil)
-	defer entries.Release()
+func (store *PebbleStore) pruneVersionsBelow(ctx context.Context, batch *pebble.Batch, indexPrefix []byte, retainFrom types.Height, deleted func([]byte) (bool, error)) (uint64, error) {
+	entries := newIter(store.db, keyRange{lower: indexPrefix, upper: versionIndexKey(indexPrefix, retainFrom, nil)})
+	defer entries.Close()
 	var pruned uint64
-	for entries.Next() {
+	for valid := entries.First(); valid; valid = entries.Next() {
 		select {
 		case <-ctx.Done():
 			return 0, ctx.Err()
@@ -537,10 +529,10 @@ func (store *LevelDBStore) pruneVersionsBelow(ctx context.Context, batch *leveld
 		if len(entry) < len(indexPrefix)+8+9 {
 			return 0, ErrInvalidStateRecord
 		}
-		batch.Delete(append([]byte(nil), entry...))
+		batch.Delete(append([]byte(nil), entry...), nil)
 		versionKey := append([]byte(nil), entry[len(indexPrefix)+8:]...)
-		value, err := store.db.Get(versionKey, nil)
-		if errors.Is(err, leveldberrors.ErrNotFound) {
+		value, err := getValue(store.db, versionKey)
+		if errors.Is(err, pebble.ErrNotFound) {
 			continue
 		}
 		if err != nil {
@@ -558,11 +550,11 @@ func (store *LevelDBStore) pruneVersionsBelow(ctx context.Context, batch *leveld
 			}
 			if !isDeleted {
 				// Visited again by the first prune that retains from next on.
-				batch.Put(versionIndexKey(indexPrefix, next-1, versionKey), nil)
+				batch.Set(versionIndexKey(indexPrefix, next-1, versionKey), nil, nil)
 				continue
 			}
 		}
-		batch.Delete(versionKey)
+		batch.Delete(versionKey, nil)
 		pruned++
 	}
 	if err := entries.Error(); err != nil {
@@ -572,13 +564,13 @@ func (store *LevelDBStore) pruneVersionsBelow(ctx context.Context, batch *leveld
 }
 
 // nextVersionHeight returns the height of the version of group that follows the one at height.
-func (store *LevelDBStore) nextVersionHeight(group []byte, height types.Height) (types.Height, bool, error) {
+func (store *PebbleStore) nextVersionHeight(group []byte, height types.Height) (types.Height, bool, error) {
 	if height == math.MaxUint64 {
 		return 0, false, nil
 	}
-	versions := store.db.NewIterator(util.BytesPrefix(group), nil)
-	defer versions.Release()
-	if !versions.Seek(binary.BigEndian.AppendUint64(append([]byte(nil), group...), uint64(height)+1)) {
+	versions := newIter(store.db, prefixRange(group))
+	defer versions.Close()
+	if !versions.SeekGE(binary.BigEndian.AppendUint64(append([]byte(nil), group...), uint64(height)+1)) {
 		return 0, false, versions.Error()
 	}
 	key := versions.Key()
@@ -589,16 +581,16 @@ func (store *LevelDBStore) nextVersionHeight(group []byte, height types.Height) 
 }
 
 // deleteNamespaceHistory drops every version of namespace.
-func (store *LevelDBStore) deleteNamespaceHistory(ctx context.Context, batch *leveldb.Batch, namespace string) error {
-	iterator := store.db.NewIterator(util.BytesPrefix(kvHistoryNamespacePrefix(namespace)), nil)
-	defer iterator.Release()
-	for iterator.Next() {
+func (store *PebbleStore) deleteNamespaceHistory(ctx context.Context, batch *pebble.Batch, namespace string) error {
+	iterator := newIter(store.db, prefixRange(kvHistoryNamespacePrefix(namespace)))
+	defer iterator.Close()
+	for valid := iterator.First(); valid; valid = iterator.Next() {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
 		}
-		batch.Delete(append([]byte(nil), iterator.Key()...))
+		batch.Delete(append([]byte(nil), iterator.Key()...), nil)
 	}
 	return iterator.Error()
 }

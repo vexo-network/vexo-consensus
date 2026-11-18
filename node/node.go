@@ -208,7 +208,7 @@ func (node *Node) start(ctx context.Context) error {
 	if err := os.MkdirAll(node.cfg.StoreDir(), 0o755); err != nil {
 		return err
 	}
-	storage, err := store.OpenLevelDB(node.cfg.StoreDir())
+	storage, err := store.OpenPebble(node.cfg.StoreDir())
 	if err != nil {
 		return err
 	}

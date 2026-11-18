@@ -14,7 +14,7 @@ import (
 )
 
 func TestKeeperSetGetExportAndAuthority(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +46,7 @@ func TestKeeperSetGetExportAndAuthority(t *testing.T) {
 }
 
 func TestKeeperApplyBatchesVersionsAndRejectsUnauthorized(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,7 @@ func TestCLICommandsBuildParamsPayloads(t *testing.T) {
 }
 
 func TestModuleGenesisPendingEventsAndQueries(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +156,7 @@ func TestModuleGenesisPendingEventsAndQueries(t *testing.T) {
 }
 
 func TestModuleTxAndQuery(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

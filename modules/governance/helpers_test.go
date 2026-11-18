@@ -40,14 +40,14 @@ func keyArg(label string) string {
 // testChain is a governance module and a staking module over one store, driven at explicit heights.
 type testChain struct {
 	t          *testing.T
-	store      *store.LevelDBStore
+	store      *store.PebbleStore
 	staking    *staking.Module
 	governance *Module
 }
 
 func newTestChain(t *testing.T, policy vexogov.TallyPolicy) *testChain {
 	t.Helper()
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

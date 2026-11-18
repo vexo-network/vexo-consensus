@@ -205,7 +205,7 @@ func TestRuntimeMovesTheBaseFeeByTheExecutionConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

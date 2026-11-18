@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/syndtr/goleveldb/leveldb"
+	"github.com/cockroachdb/pebble/v2"
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/config"
@@ -558,9 +558,9 @@ func TestNodeRejectsEvidenceItCannotVerify(t *testing.T) {
 }
 
 // withStoppedStore opens the store of a node that is not running, as the node itself would.
-func withStoppedStore(t *testing.T, node *Node, use func(storage *store.LevelDBStore)) {
+func withStoppedStore(t *testing.T, node *Node, use func(storage *store.PebbleStore)) {
 	t.Helper()
-	storage, err := store.OpenLevelDB(node.cfg.StoreDir())
+	storage, err := store.OpenPebble(node.cfg.StoreDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -576,7 +576,7 @@ func withStoppedStore(t *testing.T, node *Node, use func(storage *store.LevelDBS
 // is not running, as a crash or a bug in an older version could leave them.
 func plantEvidenceRecord(t *testing.T, node *Node, key string, value []byte) {
 	t.Helper()
-	db, err := leveldb.OpenFile(node.cfg.StoreDir(), nil)
+	db, err := pebble.Open(node.cfg.StoreDir(), &pebble.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -585,7 +585,7 @@ func plantEvidenceRecord(t *testing.T, node *Node, key string, value []byte) {
 			t.Fatal(err)
 		}
 	}()
-	if err := db.Put(append([]byte("evidence:"), key...), value, nil); err != nil {
+	if err := db.Set(append([]byte("evidence:"), key...), value, pebble.Sync); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -659,7 +659,7 @@ func TestNodeStartDropsPooledEvidenceThatCannotBeApplied(t *testing.T) {
 	}
 	// Another offence of bob, which no block has punished yet.
 	pending := bobEquivocation(t, 2, 1)
-	withStoppedStore(t, first, func(storage *store.LevelDBStore) {
+	withStoppedStore(t, first, func(storage *store.PebbleStore) {
 		for _, evidence := range []slashing.Evidence{punished, forged, stranger, pending} {
 			if err := storage.SaveEvidence(ctx, store.EvidenceRecord{Evidence: evidence}); err != nil {
 				t.Fatal(err)

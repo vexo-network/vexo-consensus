@@ -51,9 +51,9 @@ func executeTx(keeper *AnteKeeper, ctx Context, tx types.Tx) error {
 	return keeper.finish(ctx, adm)
 }
 
-func openAnteStore(t *testing.T) *store.LevelDBStore {
+func openAnteStore(t *testing.T) *store.PebbleStore {
 	t.Helper()
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -12,9 +12,9 @@ import (
 	"github.com/vexo-network/vexo-consensus/upgrade"
 )
 
-func openTestStore(t *testing.T) *store.LevelDBStore {
+func openTestStore(t *testing.T) *store.PebbleStore {
 	t.Helper()
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

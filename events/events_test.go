@@ -8,7 +8,7 @@ import (
 )
 
 func TestIndexerIndexesAndQueriesAttributes(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +38,7 @@ func TestIndexerIndexesAndQueriesAttributes(t *testing.T) {
 }
 
 func TestIndexerUsesEscapedAttributePrefix(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

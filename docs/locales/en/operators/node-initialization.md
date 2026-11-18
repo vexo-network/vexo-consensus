@@ -1,12 +1,147 @@
 # Node Initialization
 
-This guide explains how to initialize validator and archive node homes.
+This guide explains how to initialize validator and archive node homes, start them, verify they are healthy, and connect clients.
 
 Peer connectivity should be configured in `network_config.json`, not passed repeatedly on the `start` command line.
 
 Runtime behavior that affects consensus, RPC, P2P, logging, or managed Web3 accounts is config-file only. `vexod start` rejects flags such as `--timeout-propose`, `--create-empty-blocks`, `--p2p-auth-token`, `--rpc-admin-token`, `--evm-account-key-env`, and `--evm-account-key`; edit the split config files instead so every operator reviews the same deterministic node behavior.
 
 There is no node-mode switch. A node home is defined by its config files, genesis, key material, and whether `validator_id` plus a signer are present.
+
+## What You Are Building
+
+A Vexo node home is a directory that contains everything a node needs to start:
+
+```text
+.vexo-validator-1/
+  config.json             # chain ID, validator ID, data dir, split config paths
+  module_config.json      # app modules, signed tx policy, fees, gas, EVM chain ID
+  network_config.json     # RPC, Web3, P2P, peers, state sync, peer scoring
+  consensus_config.json   # consensus timings, finality execution policy, empty blocks
+  mempool_config.json     # tx queue, fee filters, replacement, WAL
+  log_config.json         # structured logs, block commit logs, peer logs
+  genesis.json            # initial validators and genesis app state
+  validator.key.json      # validator consensus signer, validator nodes only
+  node.key.json           # P2P identity signer, validators and archives
+  validator.vrf.key.json  # VRF key for committee randomness when enabled
+  data/                   # Pebble chain/app/evidence/snapshot state
+```
+
+The important rule is simple: initialize once, edit config files, then start. Do not hide network behavior inside shell flags.
+
+## Five-Minute Local Run
+
+Use this flow when you want to prove the binary works before thinking about multi-host deployment.
+
+```bash
+make build
+export VEXO_KEY_PASSPHRASE='change-me'
+
+./bin/vexod init validator \
+  --home .vexo-validator-1 \
+  --chain-id vexo-chain \
+  --validator validator-1 \
+  --encrypt-keys \
+  --overwrite
+
+./bin/vexod validate --home .vexo-validator-1
+./bin/vexod config audit --home .vexo-validator-1 --strict
+./bin/vexod start --home .vexo-validator-1
+```
+
+In another terminal:
+
+```bash
+curl -s http://127.0.0.1:26657/v1/status
+curl -s http://127.0.0.1:26657/v1/diagnostics
+curl -s http://127.0.0.1:26657/v1/metrics
+```
+
+Expected status shape:
+
+```json
+{
+  "chain_id": "vexo-chain",
+  "running": true,
+  "latest_height": 0,
+  "peer_count": 0,
+  "banned_peers": 0
+}
+```
+
+The latest height may stay at zero on a single-node or empty-mempool run when empty-block creation is disabled. That does not mean the process is broken. It means the node is not producing empty blocks. Add transactions or run a multi-validator test network to observe continuous commits.
+
+## Four-Validator Local Network
+
+Use this flow when you want peer connectivity, proposer rotation, block commit logs, and height growth.
+
+```bash
+make build
+
+./bin/vexod network init \
+  --home .vexo-network \
+  --chain-id vexo-chain \
+  --validators 4 \
+  --overwrite
+
+./bin/vexod network up \
+  --home .vexo-network \
+  --validators 4 \
+  --keep-running
+```
+
+Useful checks:
+
+```bash
+curl -s http://127.0.0.1:26657/v1/status
+curl -s http://127.0.0.1:26667/v1/status
+curl -s http://127.0.0.1:26677/v1/status
+curl -s http://127.0.0.1:26687/v1/status
+```
+
+If block commit logging is enabled in `log_config.json`, validator logs include events like:
+
+```json
+{"event":"block_committed","height":12,"round":0,"tx_count":0}
+```
+
+Stop the generated local network with:
+
+```bash
+./bin/vexod network stop --home .vexo-network --validators 4
+```
+
+## Web3 and Remix
+
+Ethereum-style JSON-RPC lives at the Web3 endpoint, not under the versioned Vexo operational API namespace.
+
+For Docker single-host validator 1, Remix custom provider URL is:
+
+```text
+http://127.0.0.1:28657/web3
+```
+
+For a direct local node with the default RPC port:
+
+```text
+http://127.0.0.1:26657/web3
+```
+
+Test the same call Remix makes:
+
+```bash
+curl -s http://127.0.0.1:26657/web3 \
+  -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}'
+```
+
+If a browser says the chain-ID fetch failed, check these in order:
+
+1. The URL ends with the Web3 endpoint path.
+2. The browser can reach the host port. Docker examples expose `28657`, `28667`, `28677`, and `28687`; inside the container the RPC port is still `26657`.
+3. The RPC server is running; query the status endpoint on the same host and port.
+4. CORS is closed by default. List the browser origin (for Remix, `https://remix.ethereum.org`) in `rpc.cors_allowed_origins` in `network_config.json`.
+5. The chain has a non-zero EVM chain ID in `module_config.json`.
 
 ## Validator Node
 
@@ -65,6 +200,8 @@ Start it with config-driven networking:
 vexod start --home .vexo-validator-1
 ```
 
+After startup, read the logs. A healthy validator should emit node-running, RPC-listening, P2P-listening, and, once blocks are committed, block-committed events. If empty-block creation is disabled, missing block-committed logs can simply mean there are no transactions.
+
 ## Archive Node
 
 Use `init archive` when the node should keep chain data, expose RPC, sync from peers, and avoid validator signing.
@@ -96,6 +233,8 @@ Start it with:
 vexod start --home .vexo-archive-1
 ```
 
+Archive nodes do not sign consensus votes. They are useful for RPC, indexing, state sync, historical proof serving, and keeping broader query history than pruning validators.
+
 ## Split Configuration Files
 
 Node homes use separate config files so operators can edit one subsystem without mixing unrelated settings:
@@ -104,7 +243,7 @@ Node homes use separate config files so operators can edit one subsystem without
 - `module_config.json` contains application module selection, execution/ante policy, and module-level governance policy.
 - `network_config.json` contains RPC, P2P node identity, listen/peer/seed settings, TLS/auth settings, and peer-scoring policy.
 - `consensus_config.json` contains consensus loop timing, empty-block policy, crypto backend, VRF, validator admission, and committee policy.
-- `mempool_config.json` contains mempool size, fee, priority, WAL, duplicate, and TTL policy.
+- `mempool_config.json` contains mempool size (`MaxTxs`, `MaxTotalBytes`, `MaxTxsPerSender`, `MaxTxBytes`), fee, priority, WAL, duplicate, and TTL policy. All size bounds must be positive; a full pool admits a new transaction only by evicting pending transactions that pay strictly less.
 - `log_config.json` contains log format, level, block commit event logging, and peer event logging.
 - `genesis.json` contains immutable genesis validators, validator metadata, and genesis module state.
 
@@ -112,7 +251,7 @@ Node homes use separate config files so operators can edit one subsystem without
 
 `network_config.json` P2P settings include `auth_replay_path`, `require_auth_replay_store`, and `dial_timeout`. The generated default writes nonce replay evidence to `data/p2p_auth_replay.jsonl` and uses a `10s` outbound dial timeout. For private loopback testing the replay store is mostly harmless bookkeeping; for public authenticated P2P it is a safety requirement because it prevents a captured signed handshake nonce from being replayed after restart. `dial_timeout` should be long enough for TLS, signed handshake verification, and cross-region latency; setting it too low makes healthy peers look flaky and can slow liveness after restarts.
 
-`network_config.json` also owns startup state sync. This is useful for archive nodes, replacement validators, or nodes restored onto a clean machine. When `state_sync.enabled` is true, `vexod start` asks each of `state_sync.snapshot_urls` for the snapshot anchored to the trusted block `state_sync.trust_height` / `state_sync.trust_hash` (each URL is the RPC URL of a node, which is asked for the manifest of that block on `/snapshot/manifest` and then for the pairs of every namespace page by page on `/snapshot/pairs`), and restores the first one that proves to be the state of that block: its header must hash to `trust_hash`, the namespace roots of its KV pairs must recompute the app hash of its state record and the header commits (the state after block `ValidatorSetHeight - 1`, together with the root of its `validator_registry`, so the validator sets of every past height are bound too), it must carry exactly the namespaces of the replicated state, and the headers it carries must link the trusted block back by hash to the block of the state, which the node continues the chain from. Only then does it restore into LevelDB, rebuild indexes, and start the node. A snapshot source is therefore never trusted; the trusted block hash must come from somewhere else, such as a validator you trust or a node you run. `vexod snapshot restore` and `sync` take the same trust as `--trust-height` and `--trust-hash`, and `vexod snapshot export --height` exports the snapshot a given committed block anchors. A source reads that state from its version history, so it serves only trusted blocks whose state it has not pruned and answers `410 Gone` otherwise, naming the lowest block whose snapshot it still serves as `earliest_height`: pick a recent trusted block, or a source that keeps history, such as an archive node. Neither side holds the state in memory: a source reads each page from its versions of that state, and the restoring node imports the pages into a staging store that replaces its store only once every namespace has the root the snapshot names, so a refused or interrupted restore leaves the store as it was. `state_sync.max_snapshot_bytes` bounds the bytes of the whole snapshot, across every request. If local state already satisfies `state_sync.min_height` and `state_sync.trust_local_higher` is true, startup logs `state_sync_skipped` and keeps the local store.
+`network_config.json` also owns startup state sync. This is useful for archive nodes, replacement validators, or nodes restored onto a clean machine. When `state_sync.enabled` is true, `vexod start` asks each of `state_sync.snapshot_urls` for the snapshot anchored to the trusted block `state_sync.trust_height` / `state_sync.trust_hash` (each URL is the RPC URL of a node, which is asked for the manifest of that block on `/snapshot/manifest` and then for the pairs of every namespace page by page on `/snapshot/pairs`), and restores the first one that proves to be the state of that block: its header must hash to `trust_hash`, the namespace roots of its KV pairs must recompute the app hash of its state record and the header commits (the state after block `ValidatorSetHeight - 1`, together with the root of its `validator_registry`, so the validator sets of every past height are bound too), it must carry exactly the namespaces of the replicated state, and the headers it carries must link the trusted block back by hash to the block of the state, which the node continues the chain from. Only then does it restore into the Pebble store, rebuild indexes, and start the node. A snapshot source is therefore never trusted; the trusted block hash must come from somewhere else, such as a validator you trust or a node you run. `vexod snapshot restore` and `sync` take the same trust as `--trust-height` and `--trust-hash`, and `vexod snapshot export --height` exports the snapshot a given committed block anchors. A source reads that state from its version history, so it serves only trusted blocks whose state it has not pruned and answers `410 Gone` otherwise, naming the lowest block whose snapshot it still serves as `earliest_height`: pick a recent trusted block, or a source that keeps history, such as an archive node. Neither side holds the state in memory: a source reads each page from its versions of that state, and the restoring node imports the pages into a staging store that replaces its store only once every namespace has the root the snapshot names, so a refused or interrupted restore leaves the store as it was. `state_sync.max_snapshot_bytes` bounds the bytes of the whole snapshot, across every request. If local state already satisfies `state_sync.min_height` and `state_sync.trust_local_higher` is true, startup logs `state_sync_skipped` and keeps the local store.
 
 Example `state_sync` block:
 
@@ -136,6 +275,35 @@ Example `state_sync` block:
 Startup logs `state_sync_candidate_failed` for a fetch error, `state_sync_candidate_rejected` for an invalid or stale snapshot, and `state_sync_applied` after a verified restore. Keep `max_snapshot_bytes` below the largest snapshot your infrastructure intentionally serves, but high enough for normal state growth. The snapshot source needs no trust, but the trusted block hash does: a wrong `trust_hash` makes the node adopt whatever chain that hash names.
 
 If a field changes network behavior, edit the split config file and commit or distribute that reviewed file. Do not rely on long `vexod start` flags for runtime behavior. The start command intentionally rejects consensus timing, empty-block, P2P auth, RPC admin, and managed Web3 key flags so operators do not accidentally run different behavior from the reviewed config.
+
+## Which File Do I Edit?
+
+| Goal | File | Field |
+|---|---|---|
+| Change RPC bind port | `network_config.json` | `rpc.address` |
+| Enable the admin endpoints | `network_config.json` | `rpc.admin_token` or `rpc.admin_tokens` (disabled until set) |
+| Serve admin endpoints under a DNS name | `network_config.json` | `rpc.allowed_hosts` (IP literals and `localhost` are always accepted) |
+| Let a browser origin call the RPC | `network_config.json` | `rpc.cors_allowed_origins` (closed by default) |
+| Change P2P bind port | `network_config.json` | `p2p.listen_address` |
+| Add persistent peers | `network_config.json` | `p2p.peers` |
+| Add seed peers | `network_config.json` | `p2p.seeds` |
+| Enable/disable empty blocks | `consensus_config.json` | consensus empty-block field |
+| Tune consensus timeouts | `consensus_config.json` | proposal, prevote, precommit, and commit timeout fields |
+| Require finalized execution | `consensus_config.json` | consensus execution-commit field |
+| Enable/disable modules | `module_config.json` | application module list |
+| Change EVM chain ID | `module_config.json` | execution EVM chain ID field |
+| Tune base fee/gas | `module_config.json` | execution base-fee, dynamic-fee, target-gas, and max-gas fields |
+| Configure mempool WAL | `mempool_config.json` | mempool WAL path |
+| Control block commit logs | `log_config.json` | log commit-events field |
+| Control peer logs | `log_config.json` | log peer-events field |
+
+When in doubt, run:
+
+```bash
+vexod config paths --home .vexo-validator-1
+vexod config show --home .vexo-validator-1
+vexod doctor --home .vexo-validator-1
+```
 
 ## Key Types
 
@@ -175,7 +343,6 @@ Example `module_config.json`:
 {
   "schema_version": "v1",
   "application": {
-    "CoreModules": ["bank", "staking", "governance", "params", "ibc", "slashing"],
     "Modules": ["bank", "staking", "governance", "params", "ibc", "slashing"]
   },
   "execution": {
@@ -184,6 +351,7 @@ Example `module_config.json`:
     "MinFee": 1,
     "BaseFee": 1,
     "EVMChainID": 83960,
+    "EVMForkPreset": "london",
     "DynamicBaseFee": true,
     "TargetGas": 5000000,
     "BaseFeeChangeDenominator": 8,
@@ -214,7 +382,7 @@ Example `module_config.json`:
 }
 ```
 
-`CoreModules` is the chain-wide stable backbone. `Modules` may extend that backbone with optional capabilities, but the core prefix must remain intact across all validators that participate in the same consensus state.
+The built-in EVM defaults to the London fork preset, which keeps EIP-1559 gas pricing, access lists, and standard Ethereum JSON-RPC behavior aligned with Remix and common wallet tooling. Use `EVMForkPreset: "latest"` only if you intentionally want the newest dev-chain protocol changes, or `EVMChainConfigJSON` if you need an explicit custom `params.ChainConfig`.
 
 Governance policy also lives in `module_config.json`. Generated network-safe configs require a proposal deposit:
 
@@ -418,7 +586,7 @@ Each generated validator home receives:
 - a shared `genesis.json`
 - `network_config.json` peer entries for the other validators
 
-`vexod network up` and `make network-e2e` use a process-level timeout while waiting for all validators to start, submit the smoke transaction, and observe height growth. The default command timeout is intentionally longer than the consensus interval because it covers process startup, LevelDB open, P2P signed handshakes, TLS/auth checks, transaction admission, and finality. If you lower consensus timeouts aggressively, keep the network-up timeout large enough to diagnose startup errors instead of killing the harness too early.
+`vexod network up` and `make network-e2e` use a process-level timeout while waiting for all validators to start, submit the smoke transaction, and observe height growth. The default command timeout is intentionally longer than the consensus interval because it covers process startup, Pebble store open, P2P signed handshakes, TLS/auth checks, transaction admission, and finality. If you lower consensus timeouts aggressively, keep the network-up timeout large enough to diagnose startup errors instead of killing the harness too early.
 
 For containerized or multi-host networks, put topology values in a JSON file:
 
@@ -452,12 +620,28 @@ vexod network init \
   --network-config ./topology.json
 ```
 
-## Stable Terms
+## Troubleshooting
 
-- `EVMForkPreset: "latest"`
-- `params.ChainConfig`
-- `https://remix.ethereum.org`
-- `rpc.cors_allowed_origins`
-- `rpc.admin_token`
-- `rpc.admin_tokens`
-- `rpc.allowed_hosts`
+| Symptom | Most likely cause | What to check |
+|---|---|---|
+| `latest_height` does not increase | Empty-blocks disabled and no txs, not enough validators online, or signer unavailable | `consensus_config.json`, validator logs, `/v1/diagnostics` |
+| `peer_count` is `0` | Peer addresses are not reachable or `network_config.json` was generated for the wrong hostnames | `p2p.peers`, container host ports, DNS, firewall |
+| `p2p auth replay store` error | Public/authenticated P2P requires durable replay storage | `p2p.auth_replay_path` and write permission under the home |
+| `eth_chainId` fails in Remix | Wrong URL, wrong host port, or the browser origin is missing from `rpc.cors_allowed_origins` | Use the Web3 endpoint URL, then curl the same endpoint directly |
+| `config audit --strict` fails | Safety gate found an unsafe config property | Read the failing check, then edit the split config file it names |
+| `no block_committed logs` | Logging disabled or no blocks are being created | `log_config.json`, `create_empty_blocks`, mempool contents |
+| `managed EVM key rejected` | Hot private keys are configured on a public RPC listener | Remove `evm_account_private_keys` or keep RPC private |
+
+## Minimal Operator Checklist
+
+Before handing a node home to another machine or operator:
+
+- `vexod validate --home <home>` passes.
+- `vexod config audit --home <home> --strict` passes for that exact home.
+- `config.json`, split config files, `genesis.json`, and public validator metadata are reviewed.
+- `validator.key.json`, `node.key.json`, and `validator.vrf.key.json` are encrypted or replaced by remote signer/KMS key documents.
+- `network_config.json:p2p.peers` contains addresses that are dialable from the target machine, not Docker-only names unless the node actually runs inside that Docker network.
+- `network_config.json` public RPC/P2P listeners have TLS material when `require_network_safety` is enabled.
+- `module_config.json:execution.EVMChainID` is set before Web3 wallets or Remix connect.
+- `mempool_config.json` has a WAL path if the node should recover pending txs after restart.
+- `log_config.json` enables block commit and peer logs while the network is being brought up.

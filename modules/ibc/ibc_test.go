@@ -17,7 +17,7 @@ import (
 )
 
 func TestModuleStoresClientChannelAndPacket(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,12 +82,12 @@ func TestModuleReportsIBCCapabilities(t *testing.T) {
 }
 
 func TestModuleClientUpdateWithoutAuthorityRequiresProof(t *testing.T) {
-	localStore, err := store.OpenLevelDB(t.TempDir())
+	localStore, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer localStore.Close()
-	remoteStore, err := store.OpenLevelDB(t.TempDir())
+	remoteStore, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ func TestModuleClientUpdateWithoutAuthorityRequiresProof(t *testing.T) {
 }
 
 func TestModuleClientUpdateRequiresStoredAuthority(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +137,7 @@ func TestModuleClientUpdateRequiresStoredAuthority(t *testing.T) {
 }
 
 func TestModuleGenesisQueriesGasAndErrorEdges(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +221,7 @@ func TestModuleGenesisQueriesGasAndErrorEdges(t *testing.T) {
 }
 
 func TestModuleSDKWrappers(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -324,7 +324,7 @@ func TestModuleEmitsIndexedPacketEvents(t *testing.T) {
 }
 
 func TestModuleTimeoutsPackets(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -371,7 +371,7 @@ func TestModuleTimeoutsPackets(t *testing.T) {
 }
 
 func TestModuleLifecycleTracksHeightAndSweepsExpiredPackets(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -410,12 +410,12 @@ func TestModuleLifecycleTracksHeightAndSweepsExpiredPackets(t *testing.T) {
 }
 
 func TestModuleAcknowledgesPacketWithProof(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer storage.Close()
-	remoteStore, err := store.OpenLevelDB(t.TempDir())
+	remoteStore, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -469,7 +469,7 @@ func TestModuleAcknowledgesPacketWithProof(t *testing.T) {
 }
 
 func TestModuleTimesOutPacketWithProof(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -521,7 +521,7 @@ func encodeProofForTest(t *testing.T, proof queryproof.Proof) string {
 }
 
 func TestModuleConnectionAndChannelHandshake(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -557,7 +557,7 @@ func TestModuleConnectionAndChannelHandshake(t *testing.T) {
 }
 
 func TestModuleLegacyOpenAliasesOnlyInitializeHandshake(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

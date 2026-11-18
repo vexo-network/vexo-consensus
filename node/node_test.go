@@ -1353,7 +1353,7 @@ func TestNodeUsesPolicySignerForConsensusMessages(t *testing.T) {
 
 func TestNodeReadsDurableFinalityProofWithoutLiveDecision(t *testing.T) {
 	ctx := context.Background()
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

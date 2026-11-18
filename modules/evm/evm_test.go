@@ -255,7 +255,7 @@ func TestModuleStateBackendQueryDocumentsRuntimeContract(t *testing.T) {
 }
 
 func TestModuleExecutesAndPersistsReceiptsCodeAndLogs(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -317,7 +317,7 @@ func TestModuleExecutesAndPersistsReceiptsCodeAndLogs(t *testing.T) {
 }
 
 func TestModuleEndBlockPersistsReceiptIndexes(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -358,7 +358,7 @@ func TestModuleEndBlockPersistsReceiptIndexes(t *testing.T) {
 }
 
 func TestModuleBeginBlockPersistsLatestBlockContext(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -389,7 +389,7 @@ func TestModuleBeginBlockPersistsLatestBlockContext(t *testing.T) {
 }
 
 func TestExecutionResultWritesBundleAllStateChanges(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -472,7 +472,7 @@ func TestExecutionResultWritesBundleAllStateChanges(t *testing.T) {
 }
 
 func TestPersistExecutionResultValidatesBeforeMutatingState(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -498,7 +498,7 @@ func TestPersistExecutionResultValidatesBeforeMutatingState(t *testing.T) {
 }
 
 func TestModuleQueryCallPassesWeb3ExecutionContext(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -550,7 +550,7 @@ func TestModuleQueryCallPassesWeb3ExecutionContext(t *testing.T) {
 }
 
 func TestModuleQueryCallAppliesStateBlockOverridesAndAuthorizations(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -630,7 +630,7 @@ func TestModuleQueryCallAppliesStateBlockOverridesAndAuthorizations(t *testing.T
 }
 
 func TestModulePersistsNonceWritesIntoEthereumAccountState(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -673,7 +673,7 @@ func TestModulePersistsNonceWritesIntoEthereumAccountState(t *testing.T) {
 }
 
 func TestModulePersistsUint256EVMBalancesForEthereumProofs(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -712,7 +712,7 @@ func TestModulePersistsUint256EVMBalancesForEthereumProofs(t *testing.T) {
 }
 
 func TestModuleEVMNativeCoinUsesBankNamespaceAsCanonicalBalance(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -746,7 +746,7 @@ func TestModuleEVMNativeCoinUsesBankNamespaceAsCanonicalBalance(t *testing.T) {
 }
 
 func TestModulePersistsFailedEVMReceiptWithoutFailingBlock(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -803,7 +803,7 @@ func TestModuleEstimateEthereumDeployUsesRawTxGasLimit(t *testing.T) {
 }
 
 func TestModuleQueryCallAcceptsUint256ValueHex(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -839,7 +839,7 @@ func TestModuleQueryCallAcceptsUint256ValueHex(t *testing.T) {
 }
 
 func TestModuleQueryCallAcceptsUint256ValueWeiAndRejectsConflict(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -881,7 +881,7 @@ func TestModuleQueryCallAcceptsUint256ValueWeiAndRejectsConflict(t *testing.T) {
 }
 
 func TestModuleQueryCallAcceptsUint256FeeQuantities(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -933,7 +933,7 @@ func TestModuleQueryCallAcceptsUint256FeeQuantities(t *testing.T) {
 }
 
 func TestModulePersistsCodeWritesAccountDeletionsAndActualGas(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1007,7 +1007,7 @@ func TestModuleQueryCallExecutesReadOnly(t *testing.T) {
 }
 
 func TestDefaultModuleRunsGethEVMBytecode(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1048,7 +1048,7 @@ func TestDefaultModuleRunsGethEVMBytecode(t *testing.T) {
 }
 
 func TestDefaultModulePersistsGethEVMStorageWrites(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1078,7 +1078,7 @@ func TestDefaultModulePersistsGethEVMStorageWrites(t *testing.T) {
 }
 
 func TestDefaultModuleQueryCallAllowsStateChangingSimulationWithoutPersisting(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1122,7 +1122,7 @@ func TestDefaultModuleQueryCallAllowsStateChangingSimulationWithoutPersisting(t 
 }
 
 func TestDefaultModuleQueryCallSupportsContractCreationSimulation(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1152,7 +1152,7 @@ func TestDefaultModuleQueryCallSupportsContractCreationSimulation(t *testing.T) 
 }
 
 func TestModuleQueriesEthereumStateRootAndProof(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1190,7 +1190,7 @@ func TestModuleQueriesEthereumStateRootAndProof(t *testing.T) {
 }
 
 func TestModuleLifecycleEventsAndStateReaders(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1292,7 +1292,7 @@ func TestModuleLifecycleEventsAndStateReaders(t *testing.T) {
 }
 
 func TestModuleEstimateGasCurrentAccountAndSnapshotReaders(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1421,7 +1421,7 @@ func TestModuleEstimateGasRejectsZeroGasVMResult(t *testing.T) {
 }
 
 func TestModuleServesHistoricalEthereumStateFromStoreVersions(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1493,7 +1493,7 @@ func TestModuleServesHistoricalEthereumStateFromStoreVersions(t *testing.T) {
 // changes no account writes nothing for it, however many accounts exist, and
 // historical reads come from the store's versions of the keys that changed.
 func TestEndBlockWritesNoPerBlockCopyOfEthereumState(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1546,7 +1546,7 @@ func TestEVMWritesRequireAtomicBatchStore(t *testing.T) {
 }
 
 func TestPrunedHeightsHaveNoHistoricalEthereumState(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1584,7 +1584,7 @@ func TestPrunedHeightsHaveNoHistoricalEthereumState(t *testing.T) {
 }
 
 func TestModulePrunesHistoricalEthereumReceiptsLogsAndBlobSidecars(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1714,7 +1714,7 @@ func TestModuleRejectsUnprotectedLegacyEthereumTxUnlessPolicyAllows(t *testing.T
 }
 
 func TestDefaultModuleExecutesEthereumRawContractCreation(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1748,7 +1748,7 @@ func TestDefaultModuleExecutesEthereumRawContractCreation(t *testing.T) {
 }
 
 func TestDefaultModuleExecutesEthereumRawEOATransfer(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1785,7 +1785,7 @@ func TestDefaultModuleExecutesEthereumRawEOATransfer(t *testing.T) {
 }
 
 func TestModulePersistsAndQueriesBlobSidecar(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1912,7 +1912,7 @@ func TestModuleRejectsBlobSidecarPolicyViolations(t *testing.T) {
 
 // commitTestEVMState commits the store's state at height, as a block commit
 // does. Direct writes made before it take effect at its height.
-func commitTestEVMState(t *testing.T, storage *store.LevelDBStore, height types.Height) {
+func commitTestEVMState(t *testing.T, storage *store.PebbleStore, height types.Height) {
 	t.Helper()
 	if err := storage.CommitBlockStateWithWrites(
 		context.Background(),

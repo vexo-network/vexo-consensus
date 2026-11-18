@@ -11,7 +11,7 @@ import (
 )
 
 func TestStoreRegistryPersistsHeightVersionedSets(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func TestStoreRegistryPersistsHeightVersionedSets(t *testing.T) {
 }
 
 func TestStoreRegistryRejectsCorruptExistingState(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +85,7 @@ func TestStoreRegistryRejectsCorruptExistingState(t *testing.T) {
 }
 
 func TestStoreRegistryRejectsZeroPower(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +98,7 @@ func TestStoreRegistryRejectsZeroPower(t *testing.T) {
 }
 
 func TestStoreRegistrySnapshotIsImmutable(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +121,7 @@ func TestStoreRegistrySnapshotIsImmutable(t *testing.T) {
 }
 
 func TestStoreRegistryStagesCommitsAndLeaves(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +199,7 @@ func TestStoreRegistryStagesCommitsAndLeaves(t *testing.T) {
 }
 
 func TestStoreRegistryServesAStagedSetCommittedBeforeTheInMemoryCommit(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,7 +228,7 @@ func TestStoreRegistryServesAStagedSetCommittedBeforeTheInMemoryCommit(t *testin
 	}
 }
 
-func stagedSet(t *testing.T, registry *StoreRegistry, storage *store.LevelDBStore, height types.Height, updates []types.ValidatorUpdate) Set {
+func stagedSet(t *testing.T, registry *StoreRegistry, storage *store.PebbleStore, height types.Height, updates []types.ValidatorUpdate) Set {
 	t.Helper()
 	set, writes, err := registry.StageValidatorUpdatesAt(context.Background(), height, updates)
 	if err != nil {
@@ -241,9 +241,9 @@ func stagedSet(t *testing.T, registry *StoreRegistry, storage *store.LevelDBStor
 	return set
 }
 
-func newStagingRegistry(t *testing.T, policy AdmissionPolicy, validators []Validator) (*StoreRegistry, *store.LevelDBStore) {
+func newStagingRegistry(t *testing.T, policy AdmissionPolicy, validators []Validator) (*StoreRegistry, *store.PebbleStore) {
 	t.Helper()
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -363,7 +363,7 @@ func TestValidatorUpdateContentErrorsAreClassified(t *testing.T) {
 }
 
 func TestLoadValidatorSetIsReadOnly(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

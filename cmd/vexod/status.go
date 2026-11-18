@@ -76,7 +76,7 @@ func writeStatus(writer io.Writer, cfg config.Config) {
 	fmt.Fprintf(writer, "data_availability.parity_recovery: true\n")
 	fmt.Fprintf(writer, "data_availability.reed_solomon_recovery: true\n")
 	fmt.Fprintf(writer, "data_availability.deterministic_sampling: true\n")
-	fmt.Fprintf(writer, "storage.backend: leveldb\n")
+	fmt.Fprintf(writer, "storage.backend: pebble\n")
 	fmt.Fprintf(writer, "state_sync.snapshot_kv: true\n")
 	fmt.Fprintf(writer, "state_sync.snapshot_checksum: true\n")
 	fmt.Fprintf(writer, "state_sync.snapshot_verify: true\n")
@@ -336,7 +336,7 @@ func newStatusDocument(cfg config.Config) statusDocument {
 		},
 		Features:         statusFeatures(cfg),
 		FeatureAssurance: statusFeatureAssurance(cfg),
-		Storage:          storageStatus{Backend: "leveldb"},
+		Storage:          storageStatus{Backend: "pebble"},
 		P2P: p2pStatus{
 			InitialScore:          cfg.P2P.InitialScore,
 			MaxScore:              cfg.P2P.MaxScore,
@@ -452,7 +452,7 @@ func statusFeatures(cfg config.Config) map[string]bool {
 		"consensus_gossip_scoring":                 true,
 		"banned_peer_disconnect":                   true,
 		"peer_score_persistence":                   true,
-		"leveldb_storage":                          true,
+		"pebble_storage":                           true,
 		"peer_scoring":                             true,
 		"temporary_peer_bans":                      cfg.P2P.BanDuration > 0,
 		"peer_score_recovery":                      cfg.P2P.ScoreRecovery > 0,

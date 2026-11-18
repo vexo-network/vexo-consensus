@@ -25,7 +25,7 @@ Rumah node Vexo adalah direktori yang berisi semua yang dibutuhkan node untuk me
   validator.key.json      # validator consensus signer, validator nodes only
   node.key.json           # P2P identity signer, validators and archives
   validator.vrf.key.json  # VRF key for committee randomness when enabled
-  data/                   # LevelDB chain/app/evidence/snapshot state
+  data/                   # Pebble chain/app/evidence/snapshot state
 ```
 Aturan pentingnya sederhana: inisialisasi sekali, edit file konfigurasi, lalu mulai. Jangan sembunyikan perilaku jaringan di dalam flag shell.
 
@@ -221,7 +221,7 @@ Rumah node menggunakan file konfigurasi terpisah sehingga operator dapat mengedi
 
 `network_config.json` Pengaturan P2P mencakup `auth_replay_path`, `require_auth_replay_store`, dan `dial_timeout`. Default yang dihasilkan menulis bukti pemutaran ulang nonce ke `data/p2p_auth_replay.jsonl` dan menggunakan batas waktu panggilan keluar `10s`. Untuk pengujian loopback pribadi, toko replay sebagian besar merupakan pembukuan yang tidak berbahaya; untuk P2P yang diautentikasi publik, ini merupakan persyaratan keamanan karena mencegah nonce jabat tangan bertanda tangan yang ditangkap diputar ulang setelah dimulai ulang. `dial_timeout` harus cukup panjang untuk TLS, verifikasi jabat tangan yang ditandatangani, dan latensi lintas wilayah; menyetelnya terlalu rendah akan membuat rekan-rekan yang sehat terlihat tidak stabil dan dapat memperlambat keaktifan setelah dimulai ulang.
 
-`network_config.json` juga memiliki sinkronisasi status startup. Ini berguna untuk mengarsipkan node, validator pengganti, atau node yang dipulihkan ke mesin yang bersih. Ketika `state_sync.enabled` benar, `vexod start` mengunduh snapshot valid pertama dari `state_sync.snapshot_urls`, memverifikasi ID rantai, checksum, akar status, dan namespace KV, memulihkannya ke LevelDB, membangun kembali indeks, dan baru kemudian memulai node. Jika keadaan lokal sudah memenuhi `state_sync.min_height` dan `state_sync.trust_local_higher` benar, startup mencatat `state_sync_skipped` dan menyimpan penyimpanan lokal.
+`network_config.json` juga memiliki sinkronisasi status startup. Ini berguna untuk mengarsipkan node, validator pengganti, atau node yang dipulihkan ke mesin yang bersih. Ketika `state_sync.enabled` benar, `vexod start` mengunduh snapshot valid pertama dari `state_sync.snapshot_urls`, memverifikasi ID rantai, checksum, akar status, dan namespace KV, memulihkannya ke Pebble, membangun kembali indeks, dan baru kemudian memulai node. Jika keadaan lokal sudah memenuhi `state_sync.min_height` dan `state_sync.trust_local_higher` benar, startup mencatat `state_sync_skipped` dan menyimpan penyimpanan lokal.
 
 Contoh blok `state_sync`:
 ```json
@@ -515,7 +515,7 @@ Setiap rumah validator yang dihasilkan menerima:
 - `genesis.json` yang dibagikan
 - `network_config.json` entri rekan untuk validator lainnya
 
-`vexod network up` dan `make network-e2e` menggunakan batas waktu tingkat proses sambil menunggu semua validator memulai, mengirimkan transaksi asap, dan mengamati pertumbuhan tinggi badan. Batas waktu perintah default sengaja dibuat lebih lama dari interval konsensus karena mencakup permulaan proses, pembukaan LevelDB, jabat tangan yang ditandatangani P2P, pemeriksaan TLS/auth, penerimaan transaksi, dan penyelesaian. Jika Anda menurunkan waktu tunggu konsensus secara agresif, pertahankan waktu tunggu jaringan cukup besar untuk mendiagnosis kesalahan startup alih-alih mematikan harness terlalu dini.
+`vexod network up` dan `make network-e2e` menggunakan batas waktu tingkat proses sambil menunggu semua validator memulai, mengirimkan transaksi asap, dan mengamati pertumbuhan tinggi badan. Batas waktu perintah default sengaja dibuat lebih lama dari interval konsensus karena mencakup permulaan proses, pembukaan Pebble, jabat tangan yang ditandatangani P2P, pemeriksaan TLS/auth, penerimaan transaksi, dan penyelesaian. Jika Anda menurunkan waktu tunggu konsensus secara agresif, pertahankan waktu tunggu jaringan cukup besar untuk mendiagnosis kesalahan startup alih-alih mematikan harness terlalu dini.
 
 Untuk jaringan dalam container atau multi-host, masukkan nilai topologi dalam file JSON:
 ```json

@@ -16,7 +16,7 @@ It follows a Tendermint/Cosmos SDK-style developer experience, but it is not a T
 - Height-versioned validator registry with validator-set hash binding for consensus and light-client verification.
 - Modular application runtime with pluggable modules and module-owned CLI commands.
 - Split subsystem configuration through `config.json`, `module_config.json`, `network_config.json`, `consensus_config.json`, `mempool_config.json`, and `log_config.json`.
-- Durable LevelDB storage for blocks, state, Merkle state roots, evidence, KV state, schema metadata, pruning, recovery, and snapshots.
+- Durable Pebble storage with binary records for blocks, state, Merkle state roots, evidence, KV state, schema metadata, pruning, recovery, and snapshots.
 - Signed transaction envelopes with nonce, fee units, dynamic base fee, dynamic blob base fee, gas metering, and ante validation paths.
 - Data availability commitments with chunk proofs, deterministic 1D/2D sample verification, and bounded parity recovery.
 - Slashing evidence lifecycle with monotonic applied-evidence persistence, penalty receipts, jailing, tombstone records, entry-based unbonding checks, and restart-aware recovery.
@@ -50,7 +50,7 @@ It follows a Tendermint/Cosmos SDK-style developer experience, but it is not a T
 | `validator` | Height-versioned validator registry and validator-set hashing |
 | `crypto` | Signing suites, key documents, remote signer, BLS adapter boundary, and safety validation |
 | `mempool` | FIFO/DAG mempool, replay WAL, duplicate suppression, fees, and recheck support |
-| `store` | LevelDB-backed durable block/state/evidence/KV store and recovery helpers |
+| `store` | Pebble-backed durable block/state/evidence/KV store and recovery helpers |
 | `transport` | In-memory, TCP, and gRPC peer transport implementations |
 | `rpc` | Versioned HTTP RPC, metrics, diagnostics, admin routes, request decoding, and response mapping |
 | `docs` | Protocol specs, SDK guides, release docs, and security/audit material |

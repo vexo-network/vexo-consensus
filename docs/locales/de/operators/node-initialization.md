@@ -25,7 +25,7 @@ Ein Vexo-Knoten-Home ist ein Verzeichnis, das alles enthält, was ein Knoten zum
   validator.key.json      # validator consensus signer, validator nodes only
   node.key.json           # P2P identity signer, validators and archives
   validator.vrf.key.json  # VRF key for committee randomness when enabled
-  data/                   # LevelDB chain/app/evidence/snapshot state
+  data/                   # Pebble chain/app/evidence/snapshot state
 ```
 Die wichtige Regel ist einfach: Einmal initialisieren, Konfigurationsdateien bearbeiten und dann starten. Verstecken Sie das Netzwerkverhalten nicht in Shell-Flags.
 
@@ -221,7 +221,7 @@ Zu den `network_config.json` RPC-Einstellungen gehören auch `shutdown_timeout`,
 
 Zu den `network_config.json` P2P-Einstellungen gehören `auth_replay_path`, `require_auth_replay_store` und `dial_timeout`. Der generierte Standardwert schreibt Nonce-Replay-Beweise in `data/p2p_auth_replay.jsonl` und verwendet ein `10s`-Timeout für ausgehende Anrufe. Für private Loopback-Tests ist der Replay Store meist eine harmlose Buchhaltung; Für öffentlich authentifiziertes P2P ist dies eine Sicherheitsanforderung, da dadurch verhindert wird, dass ein erfasster signierter Handshake-Nonce nach dem Neustart wiedergegeben wird. `dial_timeout` sollte lang genug für TLS, signierte Handshake-Überprüfung und regionsübergreifende Latenz sein; Wenn Sie den Wert zu niedrig einstellen, sehen gesunde Artgenossen schuppig aus und können die Lebendigkeit nach Neustarts verlangsamen.
 
-`network_config.json` besitzt auch die Startstatussynchronisierung. Dies ist nützlich für Archivknoten, Ersatzvalidatoren oder auf einer sauberen Maschine wiederhergestellte Knoten. Wenn `state_sync.enabled` wahr ist, lädt `vexod start` den ersten gültigen Snapshot von `state_sync.snapshot_urls` herunter, überprüft Ketten-ID, Prüfsumme, Statuswurzeln und KV-Namespaces, stellt ihn in LevelDB wieder her, erstellt Indizes neu und startet erst dann den Knoten. Wenn der lokale Status bereits `state_sync.min_height` erfüllt und `state_sync.trust_local_higher` wahr ist, protokolliert der Start `state_sync_skipped` und behält den lokalen Speicher.
+`network_config.json` besitzt auch die Startstatussynchronisierung. Dies ist nützlich für Archivknoten, Ersatzvalidatoren oder auf einer sauberen Maschine wiederhergestellte Knoten. Wenn `state_sync.enabled` wahr ist, lädt `vexod start` den ersten gültigen Snapshot von `state_sync.snapshot_urls` herunter, überprüft Ketten-ID, Prüfsumme, Statuswurzeln und KV-Namespaces, stellt ihn in Pebble wieder her, erstellt Indizes neu und startet erst dann den Knoten. Wenn der lokale Status bereits `state_sync.min_height` erfüllt und `state_sync.trust_local_higher` wahr ist, protokolliert der Start `state_sync_skipped` und behält den lokalen Speicher.
 
 Beispiel `state_sync` Block:
 ```json
@@ -515,7 +515,7 @@ Jedes generierte Validator-Haus erhält:
 - ein gemeinsamer `genesis.json`
 - `network_config.json` Peer-Einträge für die anderen Validatoren
 
-`vexod network up` und `make network-e2e` verwenden ein Timeout auf Prozessebene, während sie darauf warten, dass alle Validatoren starten, die Smoke-Transaktion übermitteln und das Höhenwachstum beobachten. Das standardmäßige Befehlszeitlimit ist absichtlich länger als das Konsensintervall, da es den Prozessstart, das Öffnen von LevelDB, P2P-signierte Handshakes, TLS-/Authentifizierungsprüfungen, Transaktionszulassung und Endgültigkeit umfasst. Wenn Sie die Konsens-Timeouts aggressiv senken, halten Sie das Netzwerk-Up-Timeout groß genug, um Startfehler zu diagnostizieren, anstatt den Harness zu früh zu beenden.
+`vexod network up` und `make network-e2e` verwenden ein Timeout auf Prozessebene, während sie darauf warten, dass alle Validatoren starten, die Smoke-Transaktion übermitteln und das Höhenwachstum beobachten. Das standardmäßige Befehlszeitlimit ist absichtlich länger als das Konsensintervall, da es den Prozessstart, das Öffnen von Pebble, P2P-signierte Handshakes, TLS-/Authentifizierungsprüfungen, Transaktionszulassung und Endgültigkeit umfasst. Wenn Sie die Konsens-Timeouts aggressiv senken, halten Sie das Netzwerk-Up-Timeout groß genug, um Startfehler zu diagnostizieren, anstatt den Harness zu früh zu beenden.
 
 Geben Sie für Container- oder Multi-Host-Netzwerke Topologiewerte in eine JSON-Datei ein:
 ```json

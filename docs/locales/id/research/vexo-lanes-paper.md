@@ -104,7 +104,7 @@ VEXO_DISSEMINATION=proposals VEXO_THROUGHPUT=150000 VEXO_VALIDATORS=4 VEXO_UPLIN
 
 ## Perubahan sejak pengukuran
 
-Pada run yang diukur, validator meminta proposal utuh 300 ms setelah mulai menunggu batch. Kini penantian dimulai ulang setiap kali batch yang dinamai proposal tiba, dan proposal utuh baru diminta setelah 300 ms tanpa batch atau setelah total 2 s (`maxLaneWait`); matriks belum diukur ulang. Pengukuran memakai aplikasi uji tanpa tanda tangan, ante handler, WAL mempool, atau LevelDB. Dengan stack produksi (`VEXO_APP=runtime`: transfer bertanda tangan 288 byte, ante handler, WAL mempool, LevelDB), 4 validator tanpa shaping di host yang sama meng-commit 50.000 transfer sekitar 2.000–2.200 tx/s; pada profil CPU eksekusi blok mendominasi, terutama pembaruan dan pembacaan pohon state di store LevelDB.
+Pada run yang diukur, validator meminta proposal utuh 300 ms setelah mulai menunggu batch. Kini penantian dimulai ulang setiap kali batch yang dinamai proposal tiba, dan proposal utuh baru diminta setelah 300 ms tanpa batch atau setelah total 2 s (`maxLaneWait`); matriks belum diukur ulang. Pengukuran memakai aplikasi uji tanpa tanda tangan, ante handler, WAL mempool, atau LevelDB. Dengan stack produksi (`VEXO_APP=runtime`: transfer bertanda tangan 288 byte, ante handler, WAL mempool, store Pebble), 4 validator tanpa shaping pada host yang sama meng-commit 50.000 transfer sekitar 1.200–2.200 tx/s tergantung beban host; run yang diselang-seling dengan build LevelDB sebelumnya memberi 1.960 lawan 1.916 dan 1.411 lawan 1.279 tx/s, jadi bukan backend yang membatasi beban ini. Dalam profil CPU, eksekusi blok mendominasi, terutama pembaruan state tree serta pembacaan titik node pohon dan versinya.
 
 <!-- vexo-docs:technical-parity -->
 

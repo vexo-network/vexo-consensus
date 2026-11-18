@@ -8,7 +8,7 @@ import (
 )
 
 func TestBuildAndVerifyQueryProof(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +52,7 @@ func TestBuildAndVerifyQueryProof(t *testing.T) {
 }
 
 func TestBuildAndVerifyNonMembershipQueryProof(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ func TestBuildAndVerifyNonMembershipQueryProof(t *testing.T) {
 
 // A proof built from the pairs of a past height matches the proof the store's tree serves.
 func TestProofsFromPairsMatchTheStoredTree(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

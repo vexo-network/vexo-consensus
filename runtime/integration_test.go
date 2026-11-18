@@ -55,7 +55,7 @@ func TestRuntimeExecuteBlockUsesConfiguredApplication(t *testing.T) {
 // what the previous block stored, so a runtime that recovers from the store prices the next block
 // exactly like the one that never stopped.
 func TestRuntimeTakesTheFeeMarketFromTheApplicationAndRecoversIt(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +153,7 @@ func (application reportingApplication) FinalizeBlockStagedContext(ctx context.C
 }
 
 func TestRuntimeStateRecordKeepsTheReportedFeeMarket(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +223,7 @@ func TestRuntimeExecuteBlockPersistsBlockAndState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -304,7 +304,7 @@ func TestRuntimeExecuteBlockAppliesValidatorUpdates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -382,7 +382,7 @@ func TestRuntimeAppliesAStakingCreateValidatorToTheValidatorSet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -468,7 +468,7 @@ func TestRuntimeSkipsValidatorJoinsTheRegistryRefuses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -521,13 +521,13 @@ func TestRuntimeStagedValidatorUpdatesRollbackWhenCommitFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer storage.Close()
 	attempted := new([]store.KVWrite)
-	failingStore := failingAppCommitStore{LevelDBStore: storage, attempted: attempted}
+	failingStore := failingAppCommitStore{PebbleStore: storage, attempted: attempted}
 	runtime, err := NewWithStore(config.Default("vexo-test"), application, []validator.Validator{
 		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
 	}, nil, failingStore)
@@ -586,7 +586,7 @@ func TestRuntimeCountsAPostCommitReconcileFailureWithoutFailingTheBlock(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -669,7 +669,7 @@ func TestRuntimeInjectsStoreIntoAppRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -700,7 +700,7 @@ func TestRuntimeInjectsStoreIntoAppRuntime(t *testing.T) {
 
 func TestRuntimeRecoversLatestStateIntoAppRuntime(t *testing.T) {
 	path := t.TempDir()
-	storage, err := store.OpenLevelDB(path)
+	storage, err := store.OpenPebble(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -729,7 +729,7 @@ func TestRuntimeRecoversLatestStateIntoAppRuntime(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reopened, err := store.OpenLevelDB(path)
+	reopened, err := store.OpenPebble(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -843,7 +843,7 @@ func (module *validatorUpdateModule) ValidatorUpdates(ctx vexoapp.Context) []typ
 }
 
 type failingAppCommitStore struct {
-	*store.LevelDBStore
+	*store.PebbleStore
 	// attempted receives the writes of every commit the store refused.
 	attempted *[]store.KVWrite
 }

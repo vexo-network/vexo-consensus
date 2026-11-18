@@ -25,7 +25,7 @@ Um nó inicial do Vexo é um diretório que contém tudo que um nó precisa para
   validator.key.json      # validator consensus signer, validator nodes only
   node.key.json           # P2P identity signer, validators and archives
   validator.vrf.key.json  # VRF key for committee randomness when enabled
-  data/                   # LevelDB chain/app/evidence/snapshot state
+  data/                   # Pebble chain/app/evidence/snapshot state
 ```
 A regra importante é simples: inicialize uma vez, edite os arquivos de configuração e depois inicie. Não esconda o comportamento da rede dentro dos sinalizadores do shell.
 
@@ -221,7 +221,7 @@ As configurações de `network_config.json` RPC também incluem `shutdown_timeou
 
 `network_config.json` As configurações P2P incluem `auth_replay_path`, `require_auth_replay_store` e `dial_timeout`. O padrão gerado grava evidência de repetição nonce em `data/p2p_auth_replay.jsonl` e usa um tempo limite de discagem de saída `10s`. Para testes de loopback privados, o replay store é, em sua maioria, uma contabilidade inofensiva; para P2P autenticado publicamente, é um requisito de segurança porque evita que um nonce de handshake assinado capturado seja reproduzido após a reinicialização. `dial_timeout` deve ser longo o suficiente para TLS, verificação de handshake assinado e latência entre regiões; defini-lo muito baixo faz com que pares saudáveis ​​pareçam esquisitos e pode diminuir a vitalidade após reinicializações.
 
-`network_config.json` também possui sincronização de estado de inicialização. Isso é útil para nós de arquivo, validadores de substituição ou nós restaurados em uma máquina limpa. Quando `state_sync.enabled` é verdadeiro, `vexod start` baixa o primeiro instantâneo válido de `state_sync.snapshot_urls`, verifica o ID da cadeia, soma de verificação, raízes de estado e namespaces KV, restaura-o no LevelDB, reconstrói os índices e só então inicia o nó. Se o estado local já satisfaz `state_sync.min_height` e `state_sync.trust_local_higher` for verdadeiro, a inicialização registra `state_sync_skipped` e mantém o armazenamento local.
+`network_config.json` também possui sincronização de estado de inicialização. Isso é útil para nós de arquivo, validadores de substituição ou nós restaurados em uma máquina limpa. Quando `state_sync.enabled` é verdadeiro, `vexod start` baixa o primeiro instantâneo válido de `state_sync.snapshot_urls`, verifica o ID da cadeia, soma de verificação, raízes de estado e namespaces KV, restaura-o no Pebble, reconstrói os índices e só então inicia o nó. Se o estado local já satisfaz `state_sync.min_height` e `state_sync.trust_local_higher` for verdadeiro, a inicialização registra `state_sync_skipped` e mantém o armazenamento local.
 
 Exemplo de bloco `state_sync`:
 ```json
@@ -515,7 +515,7 @@ Cada home validador gerado recebe:
 - um `genesis.json` compartilhado
 - `network_config.json` entradas de pares para os outros validadores
 
-`vexod network up` e `make network-e2e` usam um tempo limite de nível de processo enquanto aguardam que todos os validadores iniciem, enviem a transação de fumaça e observem o crescimento da altura. O tempo limite do comando padrão é intencionalmente maior que o intervalo de consenso porque abrange inicialização do processo, abertura do LevelDB, handshakes assinados P2P, verificações de TLS/autenticação, admissão de transação e finalidade. Se você reduzir agressivamente os tempos limite de consenso, mantenha o tempo limite de rede grande o suficiente para diagnosticar erros de inicialização, em vez de eliminar o chicote muito cedo.
+`vexod network up` e `make network-e2e` usam um tempo limite de nível de processo enquanto aguardam que todos os validadores iniciem, enviem a transação de fumaça e observem o crescimento da altura. O tempo limite do comando padrão é intencionalmente maior que o intervalo de consenso porque abrange inicialização do processo, abertura do Pebble, handshakes assinados P2P, verificações de TLS/autenticação, admissão de transação e finalidade. Se você reduzir agressivamente os tempos limite de consenso, mantenha o tempo limite de rede grande o suficiente para diagnosticar erros de inicialização, em vez de eliminar o chicote muito cedo.
 
 Para redes conteinerizadas ou multi-host, coloque os valores de topologia em um arquivo JSON:
 ```json

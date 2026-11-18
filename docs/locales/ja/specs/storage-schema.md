@@ -93,6 +93,14 @@
 
 - [英語の正規文書](../../en/specs/storage-schema.md)
 
+## Pebble backend とバイナリレコード
+
+既定の backend は Pebble(`github.com/cockroachdb/pebble/v2`)で、256 MiB の block cache と 64 MiB の memtable で開きます。レコードは `types` パッケージの canonical バイナリエンコーディングで保存されます: 最小の uvarint、長さを前置したバイト列とリスト、32 バイトそのままのハッシュ、`0` または `1` の presence byte に続く任意の値、宣言した構造体の順のフィールド。デコーダは末尾の余分なバイトを含めそれ以外をすべて拒否するため、壊れたレコードは別の値として読まれずエラーとして報告され、レコードのエンコーディングは一つだけです。以前のビルド(LevelDB、JSON レコード)が書いたデータディレクトリは読めず、変換もされません。Pebble が `format major version 1` のエラーで開くことを拒否するので、そのノードは snapshot から復元するか空のデータディレクトリに同期してください。
+
+関連する識別子:
+
+- `pebble: database "<dir>" was written in format major version 1, which is no longer supported`
+
 <!-- vexo-docs:technical-parity -->
 ## 技術的同等性付録
 

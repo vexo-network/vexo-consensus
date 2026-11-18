@@ -84,6 +84,7 @@ fuzz-smoke:
 	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) test ./mempool -run '^$$' -fuzz=FuzzWALScan -fuzztime=1s -parallel=$(FUZZ_PARALLEL)
 	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) test ./rpc -run '^$$' -fuzz=FuzzSubmitTxRequest -fuzztime=1s -parallel=$(FUZZ_PARALLEL)
 	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) test ./rpc -run '^$$' -fuzz=FuzzSubmitEvidenceRequest -fuzztime=1s -parallel=$(FUZZ_PARALLEL)
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) test ./store -run '^$$' -fuzz=FuzzDecodeStoreRecords -fuzztime=1s -parallel=$(FUZZ_PARALLEL)
 
 ops-verify: check fuzz-smoke
 	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod config audit-pack --json

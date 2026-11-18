@@ -374,7 +374,7 @@ func newFinalityRuntime(t *testing.T, validators []validator.Validator) *Runtime
 	if err != nil {
 		t.Fatal(err)
 	}
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

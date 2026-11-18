@@ -645,7 +645,7 @@ func maybeRunStartupStateSync(ctx context.Context, inputs startInputs, runtimeCo
 
 // localStoreState returns the latest state of the store at dir, if it holds one.
 func localStoreState(ctx context.Context, dir string) (store.StateRecord, bool, error) {
-	storage, err := store.OpenLevelDB(dir)
+	storage, err := store.OpenPebble(dir)
 	if err != nil {
 		return store.StateRecord{}, false, err
 	}

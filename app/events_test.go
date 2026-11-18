@@ -26,7 +26,7 @@ func (eventModule) Events(ctx Context, tx types.Tx, result types.Result) []event
 }
 
 func TestRuntimeIndexesModuleEvents(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

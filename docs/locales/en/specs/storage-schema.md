@@ -6,7 +6,11 @@ This spec defines durable storage records and recovery expectations.
 
 ## Backend
 
-The default backend is LevelDB. Storage is accessed through the `store.Store` interface so custom backends can be added.
+The default backend is Pebble (`github.com/cockroachdb/pebble/v2`), opened with a 256 MiB block cache and 64 MiB memtables. Storage is accessed through the `store.Store` interface so custom backends can be added.
+
+Records are stored in the canonical binary encoding of package `types`: minimal uvarints, length-prefixed byte strings and lists, hashes as their 32 bytes, an optional value behind a presence byte of `0` or `1`, and fields in the order of the struct that declares them. A decoder refuses anything else, trailing bytes included, so a damaged record is reported rather than read as another value. Each record has exactly one encoding.
+
+A data directory written by an earlier build (LevelDB, JSON records) is not readable and is not converted: Pebble refuses to open it with `pebble: database "<dir>" was written in format major version 1, which is no longer supported`. Restore such a node from a snapshot, or sync it into an empty data directory.
 
 ## Records
 
@@ -72,8 +76,10 @@ Module data is stored by namespace and key.
 
 Common framework namespaces:
 
+- `auth`: account sequences, advanced by the application runtime when a transaction is admitted into a block
 - `bank`: unsigned 256-bit account balances used by native bank transfers, fees, staking reward/withdraw paths, and EVM value transfers
 - `events`: indexed transaction event records and attribute indexes
+- `feemarket`: the fee market state (`state`: base fee and blob base fee, 8 bytes each, big endian) the application runtime stores at the end of every block; transactions of block N are priced against the value block N-1 stored
 - `evm`: contract VM code and storage slots
 - `evm_receipts`: receipts, receipt-location index, global log index, address log index, and blob sidecars; written with each block but outside the app hash, so pruning it below the retained height is local to the node
 - `ibc`: client, connection, channel, packet commitment, and receipt records
@@ -84,7 +90,7 @@ When staged execution is available, module KV writes, block records, state recor
 
 IBC packet send writes both the packet commitment and the next sequence. Stores that do not implement `BatchKVStore` must reject packet send instead of partially writing one key. Governance upgrade execution has the same fail-closed rule: if a proposal produces an upgrade plan, the governance state transition and upgrade plan records must be written through an atomic upgrade-plan store.
 
-For Ethereum-compatible `0x` account addresses, the built-in bank, staking, ante, and EVM paths normalize the key to a lowercase 20-byte hex address before reading or writing balance state. Legacy raw keys are still read as fallback, but new writes use the normalized key to avoid checksum/lowercase balance splits.
+For Ethereum-compatible `0x` account addresses, the built-in bank, staking, ante, and EVM paths normalize the key to a lowercase 20-byte hex address before reading or writing balance state. Writes always use the normalized key to avoid checksum/lowercase balance splits, and the bank module and the ante handler read only the normalized key, so the account a transaction signer is authorized for is the account whose balance moves.
 
 The Web3 bridge reconstructs Ethereum account/storage tries from these committed namespaces:
 
@@ -93,11 +99,11 @@ The Web3 bridge reconstructs Ethereum account/storage tries from these committed
 - `evm/code/{0x_address}` for account code hashes
 - `evm/storage/{0x_address}/{slot}` for account storage roots and storage proofs
 
-Latest `eth_getProof` and latest Web3 `stateRoot` are generated from the live reconstructed go-ethereum MPT. Historical `eth_getProof`, historical calls, historical account/code/storage reads and historical Web3 block `stateRoot` read the same keys as of the requested height from the store's state history; the EVM module keeps no per-block copy of the Ethereum state. A height whose state record is not held (never committed, pruned, or below a restored snapshot) fails explicitly.
+Latest `eth_getProof` and latest Web3 `stateRoot` are generated from the live reconstructed go-ethereum MPT. Historical `eth_getProof`, historical calls, historical account/code/storage reads and historical Web3 block `stateRoot` read the same keys as of the requested height from the store's state history; the EVM module keeps no per-block copy of the Ethereum state. A height whose state record is not held (never committed, pruned, or below a restored snapshot) fails explicitly. Computed historical state roots are cached in memory per height.
 
-LevelDB keeps state history as per-key versions: a block's writes at its height, a direct write at the next committed height, and a key's prior value at height 0 on its first change, so genesis values stay readable. Storage grows with the number of changes, never with the state size per block, and `PruneBelow` drops the versions no retained height reads. Historical query proofs read the namespace's radix tree at the requested height: every tree node change is versioned like a key, so a proof at a past height costs what a proof of the current state costs and never rebuilds the namespace. Membership proves with the path to the key's leaf; non-membership with the path to the leaf or empty branch the key's path ends at. Every version is also listed under its height in a version index, so `PruneBelow` visits only the versions below the height it retains from, and the block, state and state root records it drops are keyed by height first; pruning costs what it drops, not the size of the history. Evidence records are monotonic for the `Applied` flag: once an evidence record is marked applied, later pending saves in the same process cannot downgrade it back to unapplied.
+The store keeps state history as per-key versions. Every change after the first committed state is recorded at the height whose state it belongs to: a block's writes at its height, a direct write (`Set`, `Delete`, `SetBatch`) at the next committed height. A key's first change also records its prior value at height 0, so keys written at genesis keep their genesis value at heights before their first change, and a key with no version reads as its current value. `ImportNamespace` installs a namespace's base state and drops its versions. Storage grows with the number of changes, never with the state size per block. `PruneBelow` drops the versions no retained height reads: superseded versions below the retained height, deletions, and versions of keys that did not change since. Historical reads at a height without a committed state record fail with `ErrStateNotFound`. Historical query proofs read the namespace's radix tree at the requested height: every tree node change is versioned like a key, so a proof at a past height costs what a proof of the current state costs and never rebuilds the namespace. Membership proves with the path to the key's leaf; non-membership with the path to the leaf or empty branch the key's path ends at. Every version is also listed under its height in a version index, so `PruneBelow` visits only the versions below the height it retains from, and the block, state and state root records it drops are keyed by height first; pruning costs what it drops, not the size of the history. Evidence records are monotonic for the `Applied` flag: once an evidence record is marked applied, later pending saves in the same process cannot downgrade it back to unapplied.
 
-When an app block produces validator updates, the store-backed validator registry stages the height `H + 1` validator-set snapshot as KV writes and commits those writes in the same LevelDB batch as app writes, block metadata, state metadata, and state roots. If the block commit fails, the future validator-set snapshot is not persisted.
+When an app block produces validator updates, the store-backed validator registry stages the height `H + 1` validator-set snapshot as KV writes. Those writes commit in the same Pebble batch as app writes, block metadata, state metadata, and state roots. If the block commit fails, the future validator-set snapshot is not persisted. If the process crashes after the backend batch succeeds but before in-memory post-commit hooks run, reopening the store-backed registry reloads the persisted height-versioned sets.
 
 Runtime compaction includes both backend store compaction and mempool WAL compaction. WAL compaction rewrites pending transactions after committed transactions are removed, preventing long-running nodes from retaining stale append-only mempool records indefinitely. During startup, a partially written final WAL record caused by process or host crash is truncated and ignored, while corrupt records in the middle of the WAL fail closed because silently skipping them could change transaction ordering. The in-memory mempool seen-cache also prunes expired entries on admission and commit paths when `seen_ttl` is enabled.
 
@@ -115,13 +121,22 @@ Runtime compaction includes both backend store compaction and mempool WAL compac
 
 ## EVM Records
 
-The EVM module requires atomic batch writes for state-changing execution, receipt indexes, blob sidecar indexes, account snapshots, and VM write application. A custom storage backend that only implements single-key `Set`/`Delete` must reject EVM execution rather than partially writing contract state or native-account balances.
+The EVM module requires atomic batch writes for state-changing execution, receipt indexes, blob sidecar indexes, and VM write application. A custom storage backend that only implements single-key `Set`/`Delete` must reject EVM execution rather than partially writing contract state or native-account balances.
+
+In the `evm` namespace:
 
 - `code/{address}`: deployed contract bytecode.
 - `storage/{address}/{slot}`: VM-returned storage slot value.
+
+In the `evm_receipts` namespace:
+
 - `receipts/{tx_hash}`: committed transaction receipt.
+- `receipt_index/{tx_hash}`: block height and position of the transaction.
+- `receipt_height/{height}/{tx_hash}`: the transactions of a block, which receipt pruning visits by height.
+- `receipt_pruned_below`: the height below which receipts are pruned.
 - `logs/by_height/{height}/{tx_hash}/{log_index}`: global log index.
 - `logs/by_address/{address}/{height}/{tx_hash}/{log_index}`: address-scoped log index.
+- `blob_sidecars/by_tx/{tx_hash}` and `blob_sidecars/by_blob/{blob_hash}`: blob sidecars and their blob-hash index.
 
 EVM account balances are persisted as unsigned 256-bit big-endian values. Execution failures that occur inside the VM are persisted as Ethereum-style receipts with `status = 0`, `error`, consumed gas, return data, and trace data when available; malformed invocations still fail before receipt persistence.
 
@@ -144,9 +159,3 @@ Legacy array-style `logs` and `logs/{address}` values remain query-compatible, b
 ## Schema Migration
 
 Store migrations must be height-gated through an upgrade plan and support rollback on failure.
-- `evm_receipts`: address-scoped log index.
-- `receipt_index/{tx_hash}`: address-scoped log index.
-- `blob_sidecars/by_tx/{tx_hash}`: address-scoped log index.
-- `blob_sidecars/by_blob/{blob_hash}`: address-scoped log index.
-- `receipt_height/{height}/{tx_hash}`: address-scoped log index.
-- `receipt_pruned_below`: address-scoped log index.

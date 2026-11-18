@@ -32,7 +32,7 @@ func setupOpenIBCPath(t *testing.T, ctx context.Context, keeper *Keeper, latestH
 }
 
 func TestKeeperPacketLifecycle(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func TestKeeperPacketLifecycle(t *testing.T) {
 }
 
 func TestKeeperIndexesTimeoutPacketsAndRemovesAckedEntries(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestKeeperIndexesTimeoutPacketsAndRemovesAckedEntries(t *testing.T) {
 }
 
 func TestKeeperRemovesTimeoutIndexWhenPacketTimesOut(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestKeeperSendPacketRequiresAtomicStore(t *testing.T) {
 }
 
 func TestKeeperUpdatesClientAndVerifiesProof(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +174,7 @@ func TestKeeperUpdatesClientAndVerifiesProof(t *testing.T) {
 }
 
 func TestKeeperVerifiesPacketCommitmentProof(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,12 +212,12 @@ func TestKeeperVerifiesPacketCommitmentProof(t *testing.T) {
 }
 
 func TestKeeperAcknowledgesPacketOnlyWithAckProof(t *testing.T) {
-	localStore, err := store.OpenLevelDB(t.TempDir())
+	localStore, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer localStore.Close()
-	remoteStore, err := store.OpenLevelDB(t.TempDir())
+	remoteStore, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,12 +262,12 @@ func TestKeeperAcknowledgesPacketOnlyWithAckProof(t *testing.T) {
 }
 
 func TestKeeperTimeoutPacketWithAbsenceProof(t *testing.T) {
-	localStore, err := store.OpenLevelDB(t.TempDir())
+	localStore, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer localStore.Close()
-	remoteStore, err := store.OpenLevelDB(t.TempDir())
+	remoteStore, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -301,12 +301,12 @@ func TestKeeperTimeoutPacketWithAbsenceProof(t *testing.T) {
 }
 
 func TestKeeperTimeoutRejectsAcknowledgementProof(t *testing.T) {
-	localStore, err := store.OpenLevelDB(t.TempDir())
+	localStore, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer localStore.Close()
-	remoteStore, err := store.OpenLevelDB(t.TempDir())
+	remoteStore, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -341,7 +341,7 @@ func TestKeeperTimeoutRejectsAcknowledgementProof(t *testing.T) {
 }
 
 func TestKeeperConnectionAndChannelHandshakeTransitions(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -380,7 +380,7 @@ func TestKeeperConnectionAndChannelHandshakeTransitions(t *testing.T) {
 }
 
 func TestKeeperPacketTimeoutLifecycle(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -416,7 +416,7 @@ func TestKeeperPacketTimeoutLifecycle(t *testing.T) {
 }
 
 func TestKeeperRejectsInvalidPacketPathAndSequence(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -457,7 +457,7 @@ func TestKeeperRejectsInvalidPacketPathAndSequence(t *testing.T) {
 }
 
 func TestKeeperFreezesAndExpiresClients(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

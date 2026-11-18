@@ -6,13 +6,9 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/cockroachdb/pebble/v2"
 	"sort"
 
-	"github.com/syndtr/goleveldb/leveldb"
-	leveldberrors "github.com/syndtr/goleveldb/leveldb/errors"
-	"github.com/syndtr/goleveldb/leveldb/iterator"
-	"github.com/syndtr/goleveldb/leveldb/opt"
-	"github.com/syndtr/goleveldb/leveldb/util"
 	"github.com/vexo-network/vexo-consensus/stateproof"
 	"github.com/vexo-network/vexo-consensus/types"
 )
@@ -73,12 +69,6 @@ func stateTreeHistoryKey(group []byte, height types.Height) []byte {
 	return append(key, buffer[:]...)
 }
 
-// dbReader reads keys from the database or from one of its snapshots.
-type dbReader interface {
-	Get(key []byte, ro *opt.ReadOptions) ([]byte, error)
-	NewIterator(slice *util.Range, ro *opt.ReadOptions) iterator.Iterator
-}
-
 // treeNodes serves the stored nodes of one namespace tree.
 type treeNodes struct {
 	reader    dbReader
@@ -86,8 +76,8 @@ type treeNodes struct {
 }
 
 func (nodes treeNodes) Node(key stateproof.NodeKey) (stateproof.Node, bool, error) {
-	encoded, err := nodes.reader.Get(stateTreeNodeKey(nodes.namespace, key), nil)
-	if errors.Is(err, leveldberrors.ErrNotFound) {
+	encoded, err := getValue(nodes.reader, stateTreeNodeKey(nodes.namespace, key))
+	if errors.Is(err, pebble.ErrNotFound) {
 		return stateproof.Node{}, false, nil
 	}
 	if err != nil {
@@ -117,8 +107,8 @@ type treeNodesAt struct {
 
 func (nodes treeNodesAt) Node(key stateproof.NodeKey) (stateproof.Node, bool, error) {
 	group := stateTreeHistoryGroup(nodes.namespace, key)
-	versions := nodes.reader.NewIterator(util.BytesPrefix(group), nil)
-	defer versions.Release()
+	versions := newIter(nodes.reader, prefixRange(group))
+	defer versions.Close()
 	if !versions.First() {
 		if err := versions.Error(); err != nil {
 			return stateproof.Node{}, false, err
@@ -161,7 +151,7 @@ func (trees *stateTrees) apply(write KVWrite) error {
 // persist adds the node changes of every tree to batch. With versioned set, each change is also
 // recorded as a version of the node at height, after the node's prior form at height 0 when this is
 // its first change.
-func (trees *stateTrees) persist(batch *leveldb.Batch, versioned bool, height types.Height) error {
+func (trees *stateTrees) persist(batch *pebble.Batch, versioned bool, height types.Height) error {
 	namespaces := make([]string, 0, len(trees.trees))
 	for namespace := range trees.trees {
 		namespaces = append(namespaces, namespace)
@@ -180,28 +170,28 @@ func (trees *stateTrees) persist(batch *leveldb.Batch, versioned bool, height ty
 				}
 			}
 			if change.Node == nil {
-				batch.Delete(key)
+				batch.Delete(key, nil)
 				continue
 			}
-			batch.Put(key, encoded)
+			batch.Set(key, encoded, nil)
 		}
 	}
 	return nil
 }
 
-func (trees *stateTrees) recordVersion(batch *leveldb.Batch, namespace string, key stateproof.NodeKey, height types.Height, encoded []byte) error {
+func (trees *stateTrees) recordVersion(batch *pebble.Batch, namespace string, key stateproof.NodeKey, height types.Height, encoded []byte) error {
 	group := stateTreeHistoryGroup(namespace, key)
-	versions := trees.reader.NewIterator(util.BytesPrefix(group), nil)
+	versions := newIter(trees.reader, prefixRange(group))
 	hasVersions := versions.First()
 	err := versions.Error()
-	versions.Release()
+	versions.Close()
 	if err != nil {
 		return err
 	}
 	if !hasVersions {
-		prior, err := trees.reader.Get(stateTreeNodeKey(namespace, key), nil)
+		prior, err := getValue(trees.reader, stateTreeNodeKey(namespace, key))
 		switch {
-		case errors.Is(err, leveldberrors.ErrNotFound):
+		case errors.Is(err, pebble.ErrNotFound):
 			prior = nil
 		case err != nil:
 			return err
@@ -213,12 +203,12 @@ func (trees *stateTrees) recordVersion(batch *leveldb.Batch, namespace string, k
 }
 
 // Root returns the current root of namespace.
-func (store *LevelDBStore) Root(ctx context.Context, namespace string) (types.Hash, error) {
+func (store *PebbleStore) Root(ctx context.Context, namespace string) (types.Hash, error) {
 	return store.RootWithWrites(ctx, namespace, nil)
 }
 
 // RootWithWrites returns the root namespace would have after writes, without applying them.
-func (store *LevelDBStore) RootWithWrites(ctx context.Context, namespace string, writes []KVWrite) (types.Hash, error) {
+func (store *PebbleStore) RootWithWrites(ctx context.Context, namespace string, writes []KVWrite) (types.Hash, error) {
 	select {
 	case <-ctx.Done():
 		return types.Hash{}, ctx.Err()
@@ -227,11 +217,8 @@ func (store *LevelDBStore) RootWithWrites(ctx context.Context, namespace string,
 	if namespace == "" {
 		return types.Hash{}, ErrInvalidNamespace
 	}
-	snapshot, err := store.db.GetSnapshot()
-	if err != nil {
-		return types.Hash{}, err
-	}
-	defer snapshot.Release()
+	snapshot := store.db.NewSnapshot()
+	defer snapshot.Close()
 	trees := newStateTrees(snapshot)
 	for _, write := range writes {
 		if write.Namespace != namespace {
@@ -249,7 +236,7 @@ func (store *LevelDBStore) RootWithWrites(ctx context.Context, namespace string,
 
 // StateProof proves the current value of key in namespace, or its absence, against the
 // namespace's current root, read from one consistent view of the store.
-func (store *LevelDBStore) StateProof(ctx context.Context, namespace string, key []byte) (root types.Hash, value []byte, exists bool, proof stateproof.Proof, err error) {
+func (store *PebbleStore) StateProof(ctx context.Context, namespace string, key []byte) (root types.Hash, value []byte, exists bool, proof stateproof.Proof, err error) {
 	select {
 	case <-ctx.Done():
 		return types.Hash{}, nil, false, stateproof.Proof{}, ctx.Err()
@@ -261,11 +248,8 @@ func (store *LevelDBStore) StateProof(ctx context.Context, namespace string, key
 	if len(key) == 0 {
 		return types.Hash{}, nil, false, stateproof.Proof{}, ErrInvalidKey
 	}
-	snapshot, err := store.db.GetSnapshot()
-	if err != nil {
-		return types.Hash{}, nil, false, stateproof.Proof{}, err
-	}
-	defer snapshot.Release()
+	snapshot := store.db.NewSnapshot()
+	defer snapshot.Close()
 	tree := stateproof.NewTree(namespace, treeNodes{reader: snapshot, namespace: namespace})
 	root, err = tree.Root()
 	if err != nil {
@@ -275,9 +259,9 @@ func (store *LevelDBStore) StateProof(ctx context.Context, namespace string, key
 	if err != nil {
 		return types.Hash{}, nil, false, stateproof.Proof{}, err
 	}
-	stored, err := snapshot.Get(kvKey(namespace, key), nil)
+	stored, err := getValue(snapshot, kvKey(namespace, key))
 	switch {
-	case errors.Is(err, leveldberrors.ErrNotFound):
+	case errors.Is(err, pebble.ErrNotFound):
 		if leaf != nil && proof.Neighbor == nil {
 			return types.Hash{}, nil, false, stateproof.Proof{}, fmt.Errorf("%w: namespace %q holds a leaf for an absent key", ErrStateTreeCorrupt, namespace)
 		}
@@ -294,7 +278,7 @@ func (store *LevelDBStore) StateProof(ctx context.Context, namespace string, key
 // StateProofAt proves the value of key in namespace at committed height, or its absence, against
 // the namespace's root at that height, from the tree as it was then: it reads the versions of the
 // nodes on the key's path, not the namespace.
-func (store *LevelDBStore) StateProofAt(ctx context.Context, height types.Height, namespace string, key []byte) (root types.Hash, value []byte, exists bool, proof stateproof.Proof, err error) {
+func (store *PebbleStore) StateProofAt(ctx context.Context, height types.Height, namespace string, key []byte) (root types.Hash, value []byte, exists bool, proof stateproof.Proof, err error) {
 	select {
 	case <-ctx.Done():
 		return types.Hash{}, nil, false, stateproof.Proof{}, ctx.Err()
@@ -309,11 +293,8 @@ func (store *LevelDBStore) StateProofAt(ctx context.Context, height types.Height
 	if err := store.requireCommittedState(height); err != nil {
 		return types.Hash{}, nil, false, stateproof.Proof{}, err
 	}
-	snapshot, err := store.db.GetSnapshot()
-	if err != nil {
-		return types.Hash{}, nil, false, stateproof.Proof{}, err
-	}
-	defer snapshot.Release()
+	snapshot := store.db.NewSnapshot()
+	defer snapshot.Close()
 	tree := stateproof.NewTree(namespace, treeNodesAt{reader: snapshot, namespace: namespace, height: height})
 	root, err = tree.Root()
 	if err != nil {
@@ -341,7 +322,7 @@ func (store *LevelDBStore) StateProofAt(ctx context.Context, height types.Height
 
 // replaceStateTree adds to batch the removal of namespace's tree and its versions, and the nodes
 // of the tree of pairs.
-func (store *LevelDBStore) replaceStateTree(ctx context.Context, batch *leveldb.Batch, namespace string, pairs []KVPair) error {
+func (store *PebbleStore) replaceStateTree(ctx context.Context, batch *pebble.Batch, namespace string, pairs []KVPair) error {
 	for _, prefix := range [][]byte{stateTreeNamespacePrefix(namespace), stateTreeNamespaceID(stateTreeHistoryPrefix, namespace)} {
 		if err := deletePrefix(ctx, store.db, batch, prefix); err != nil {
 			return err
@@ -352,22 +333,22 @@ func (store *LevelDBStore) replaceStateTree(ctx context.Context, batch *leveldb.
 		return err
 	}
 	for _, change := range nodes {
-		batch.Put(stateTreeNodeKey(namespace, change.Key), stateproof.EncodeNode(*change.Node))
+		batch.Set(stateTreeNodeKey(namespace, change.Key), stateproof.EncodeNode(*change.Node), nil)
 	}
 	return nil
 }
 
 // deletePrefix adds to batch the deletion of every key under prefix.
-func deletePrefix(ctx context.Context, reader dbReader, batch *leveldb.Batch, prefix []byte) error {
-	iterator := reader.NewIterator(util.BytesPrefix(prefix), nil)
-	defer iterator.Release()
-	for iterator.Next() {
+func deletePrefix(ctx context.Context, reader dbReader, batch *pebble.Batch, prefix []byte) error {
+	iterator := newIter(reader, prefixRange(prefix))
+	defer iterator.Close()
+	for valid := iterator.First(); valid; valid = iterator.Next() {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
 		}
-		batch.Delete(append([]byte(nil), iterator.Key()...))
+		batch.Delete(append([]byte(nil), iterator.Key()...), nil)
 	}
 	return iterator.Error()
 }
@@ -376,7 +357,7 @@ func deletePrefix(ctx context.Context, reader dbReader, batch *leveldb.Batch, pr
 // being held in memory: the pairs of each page, in ascending key order after those of the pages
 // before, are written with the nodes they change in the namespace's tree in one batch.
 type NamespaceImport struct {
-	store     *LevelDBStore
+	store     *PebbleStore
 	namespace string
 	last      []byte
 }
@@ -386,13 +367,14 @@ var ErrImportOrder = errors.New("imported pairs are not in ascending key order")
 
 // BeginNamespaceImport empties namespace, its versions and its tree, and returns the import that
 // fills it. The pairs imported become the namespace's base state.
-func (store *LevelDBStore) BeginNamespaceImport(ctx context.Context, namespace string) (*NamespaceImport, error) {
+func (store *PebbleStore) BeginNamespaceImport(ctx context.Context, namespace string) (*NamespaceImport, error) {
 	if namespace == "" {
 		return nil, ErrInvalidNamespace
 	}
 	store.writeMu.Lock()
 	defer store.writeMu.Unlock()
-	batch := new(leveldb.Batch)
+	batch := store.db.NewBatch()
+	defer batch.Close()
 	if err := store.deleteNamespaceHistory(ctx, batch, namespace); err != nil {
 		return nil, err
 	}
@@ -417,7 +399,8 @@ func (in *NamespaceImport) Add(ctx context.Context, pairs []KVPair) error {
 	in.store.writeMu.Lock()
 	defer in.store.writeMu.Unlock()
 	trees := newStateTrees(in.store.db)
-	batch := new(leveldb.Batch)
+	batch := in.store.db.NewBatch()
+	defer batch.Close()
 	for _, pair := range pairs {
 		if pair.Namespace != "" && pair.Namespace != in.namespace {
 			return ErrInvalidNamespace
@@ -432,7 +415,7 @@ func (in *NamespaceImport) Add(ctx context.Context, pairs []KVPair) error {
 		if err := trees.apply(KVWrite{Namespace: in.namespace, Key: pair.Key, Value: pair.Value}); err != nil {
 			return err
 		}
-		batch.Put(kvKey(in.namespace, pair.Key), append([]byte(nil), pair.Value...))
+		batch.Set(kvKey(in.namespace, pair.Key), append([]byte(nil), pair.Value...), nil)
 	}
 	if err := trees.persist(batch, false, 0); err != nil {
 		return err

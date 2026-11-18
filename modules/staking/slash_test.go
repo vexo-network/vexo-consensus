@@ -178,7 +178,7 @@ func TestSlashValidatorBatchFailureDoesNotMutateState(t *testing.T) {
 	base := newStakingStore(t)
 	module := NewModule()
 	delegateStakes(t, module, base, map[string]string{"alice": "100"})
-	storage := failingBatchStore{LevelDBStore: base, err: errors.New("batch failed")}
+	storage := failingBatchStore{PebbleStore: base, err: errors.New("batch failed")}
 	if _, _, err := SlashValidator(context.Background(), storage, "offence-1", "validator-1", 1, 2, 5000, 0); err == nil {
 		t.Fatal("expected slashing batch failure")
 	}

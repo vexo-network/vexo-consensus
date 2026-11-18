@@ -118,7 +118,7 @@ Use these as initial alert values, then tune after a real long-run baseline:
 | Round timeouts | 3x normal baseline | continuous timeout loop | raise timeout budget or investigate latency/partition |
 | Proposal latency p95 | above 50% of `timeout_propose` | above 80% of `timeout_propose` | profile proposer, mempool, DA commitment, disk |
 | Vote latency p95 | above 50% of prevote/precommit budget | above 80% of budget | inspect CPU, signer, transport, gossip backpressure |
-| Commit latency p95 | above 50% of block interval | above 80% of block interval | inspect LevelDB, state roots, EVM execution, snapshots |
+| Commit latency p95 | above 50% of block interval | above 80% of block interval | inspect Pebble compaction, state roots, EVM execution, snapshots |
 | Mempool size | increasing for 5 minutes | near `max_txs` or sustained replacement churn | inspect base fee, min fee, tx validity, spam |
 | Signer failures | any non-zero value | repeated failures in one height window | stop validator if double-sign guard or key mismatch appears |
 | Snapshot health | one failed check | repeated failed export/verify/restore | pause state-sync serving and run recovery report |
@@ -139,7 +139,7 @@ The most important rule: alert on **change over time**. A single number can be m
 | Remote signer rejects requests | key custody | signer audit log, guard file, nonce file, node logs | distinguish policy rejection from transport outage |
 | Banned peers spike | P2P/security | peer score snapshots and ban reasons | inspect malformed gossip or shared wrong config |
 
-During incidents, prefer preserving data over “cleaning up.” Deleting WALs, addrbooks, signer guards, or LevelDB directories can destroy the evidence needed to distinguish a bug from operator error.
+During incidents, prefer preserving data over “cleaning up.” Deleting WALs, addrbooks, signer guards, or Pebble store directories can destroy the evidence needed to distinguish a bug from operator error.
 
 ## Log Events to Keep
 

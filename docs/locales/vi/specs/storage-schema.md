@@ -93,6 +93,14 @@ Tài liệu này giúp hiểu namespace durable storage, key schema và recovery
 
 - [Tài liệu chuẩn tiếng Anh](../../en/specs/storage-schema.md)
 
+## Backend Pebble và bản ghi nhị phân
+
+Backend mặc định là Pebble (`github.com/cockroachdb/pebble/v2`), mở với block cache 256 MiB và memtable 64 MiB. Bản ghi được lưu bằng mã hóa nhị phân chuẩn của gói `types`: uvarint tối thiểu, chuỗi byte và danh sách có tiền tố độ dài, hash dưới dạng 32 byte của nó, giá trị tùy chọn sau một byte hiện diện `0` hoặc `1`, và các trường theo thứ tự của struct khai báo chúng. Bộ giải mã từ chối mọi thứ khác, kể cả byte thừa, nên bản ghi hỏng được báo lỗi thay vì bị đọc thành giá trị khác; mỗi bản ghi chỉ có một cách mã hóa. Thư mục dữ liệu do bản build trước (LevelDB, bản ghi JSON) ghi không đọc được và không được chuyển đổi: Pebble từ chối mở nó với lỗi `format major version 1`. Hãy khôi phục node như vậy từ snapshot hoặc đồng bộ vào một thư mục dữ liệu trống.
+
+Định danh liên quan:
+
+- `pebble: database "<dir>" was written in format major version 1, which is no longer supported`
+
 <!-- vexo-docs:technical-parity -->
 ## Phụ lục tương đương kỹ thuật
 

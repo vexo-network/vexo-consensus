@@ -490,7 +490,7 @@ func TestCommitFinalizedBlockComputesRecoveryReportOncePerCommittedHeight(t *tes
 
 // failingProofStore fails the first SaveFinalityProof calls.
 type failingProofStore struct {
-	*store.LevelDBStore
+	*store.PebbleStore
 	failures int
 	saves    int
 }
@@ -501,7 +501,7 @@ func (proofStore *failingProofStore) SaveFinalityProof(ctx context.Context, reco
 		return errors.New("disk full")
 	}
 	proofStore.saves++
-	return proofStore.LevelDBStore.SaveFinalityProof(ctx, record)
+	return proofStore.PebbleStore.SaveFinalityProof(ctx, record)
 }
 
 func TestReconcileFinishesCommitAfterPostExecutionFailure(t *testing.T) {
@@ -512,11 +512,11 @@ func TestReconcileFinishesCommitAfterPostExecutionFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	levelDB, ok := runtime.Store.(*store.LevelDBStore)
+	pebbleStore, ok := runtime.Store.(*store.PebbleStore)
 	if !ok {
-		t.Fatalf("expected a LevelDB store, got %T", runtime.Store)
+		t.Fatalf("expected a Pebble store, got %T", runtime.Store)
 	}
-	flaky := &failingProofStore{LevelDBStore: levelDB, failures: 1}
+	flaky := &failingProofStore{PebbleStore: pebbleStore, failures: 1}
 	runtime.Store = flaky
 
 	proposeAndVote(t, node)
@@ -527,7 +527,7 @@ func TestReconcileFinishesCommitAfterPostExecutionFailure(t *testing.T) {
 	if committed, _ := node.currentCommitHeight(ctx); committed != 1 {
 		t.Fatalf("expected the block to be durable, committed height is %d", committed)
 	}
-	if _, err := levelDB.FinalityProof(ctx, 1); !errors.Is(err, store.ErrFinalityNotFound) {
+	if _, err := pebbleStore.FinalityProof(ctx, 1); !errors.Is(err, store.ErrFinalityNotFound) {
 		t.Fatalf("expected the finality proof to be missing after the failure, got %v", err)
 	}
 	if node.reconciledHeight != 0 {
@@ -541,7 +541,7 @@ func TestReconcileFinishesCommitAfterPostExecutionFailure(t *testing.T) {
 	if node.reconciledHeight != 1 {
 		t.Fatalf("expected the step to finish the commit, reconciled height is %d", node.reconciledHeight)
 	}
-	if _, err := levelDB.FinalityProof(ctx, 1); err != nil {
+	if _, err := pebbleStore.FinalityProof(ctx, 1); err != nil {
 		t.Fatalf("expected the reconcile to store the finality proof: %v", err)
 	}
 	savesAfterReconcile := flaky.saves
@@ -563,8 +563,8 @@ func TestPersistFinalityDecisionsSkipsStoredHeights(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	levelDB := runtime.Store.(*store.LevelDBStore)
-	counting := &failingProofStore{LevelDBStore: levelDB}
+	pebbleStore := runtime.Store.(*store.PebbleStore)
+	counting := &failingProofStore{PebbleStore: pebbleStore}
 	runtime.Store = counting
 	machine := mustConsensus(t, node)
 

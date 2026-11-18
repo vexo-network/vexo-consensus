@@ -25,7 +25,7 @@ Vexo 노드 홈은 노드를 시작하는 데 필요한 모든 것을 포함하�
   validator.key.json      # validator consensus signer, validator nodes only
   node.key.json           # P2P identity signer, validators and archives
   validator.vrf.key.json  # VRF key for committee randomness when enabled
-  data/                   # LevelDB chain/app/evidence/snapshot state
+  data/                   # Pebble chain/app/evidence/snapshot state
 ```
 중요한 규칙은 간단합니다. 한 번 초기화하고 구성 파일을 편집한 다음 시작하는 것입니다. 쉘 플래그 내에 네트워크 동작을 숨기지 마십시오.
 
@@ -221,7 +221,7 @@ vexod start --home .vexo-archive-1
 
 `network_config.json` P2P 설정에는 `auth_replay_path`, `require_auth_replay_store` 및 `dial_timeout`이 포함됩니다. 생성된 기본값은 nonce 재생 증거를 `data/p2p_auth_replay.jsonl`에 기록하고 `10s` 아웃바운드 다이얼 시간 초과를 사용합니다. 개인 루프백 테스트의 경우 재생 저장소는 대부분 무해한 장부입니다. 공개 인증된 P2P의 경우 다시 시작한 후 캡처된 서명된 핸드셰이크 임시 값이 재생되는 것을 방지하기 때문에 안전 요구 사항입니다. `dial_timeout`은 TLS, 서명된 핸드셰이크 확인 및 지역 간 대기 시간을 위해 충분히 길어야 합니다. 너무 낮게 설정하면 건강한 피어가 불안정해 보이고 다시 시작한 후 활성 상태가 느려질 수 있습니다.
 
-`network_config.json`은(는) 시작 상태 동기화도 소유합니다. 이는 아카이브 노드, 교체 유효성 검사기 또는 깨끗한 시스템에 복원된 노드에 유용합니다. `state_sync.enabled`가 true인 경우 `vexod start`는 `state_sync.snapshot_urls` 각각에 신뢰 블록 `state_sync.trust_height` / `state_sync.trust_hash`에 고정된 스냅샷을 요청하고(각 URL은 노드의 RPC URL이며, 먼저 `/snapshot/manifest`에서 그 블록의 manifest를, 이어서 `/snapshot/pairs`에서 모든 네임스페이스의 쌍을 페이지 단위로 받습니다), 그 블록의 state임이 증명되는 첫 스냅샷만 복원합니다. 스냅샷 헤더의 해시가 `trust_hash`와 같아야 하고, KV 쌍의 네임스페이스 루트로 다시 계산한 app hash가 state 레코드의 값 및 헤더가 커밋하는 값(블록 `ValidatorSetHeight - 1` 실행 후 state와 그 `validator_registry` 루트이므로 모든 과거 높이의 validator set도 함께 묶입니다)과 같아야 하며, 복제 state의 네임스페이스만 정확히 담아야 하고, 함께 담긴 헤더들이 신뢰 블록에서 state의 블록까지 해시로 이어져야 합니다. 노드는 그 블록에서 체인을 이어갑니다. 이를 통과해야 LevelDB로 복원하고 인덱스를 다시 빌드한 다음 노드를 시작합니다. 따라서 스냅샷 소스는 신뢰하지 않으며, 신뢰 블록 해시는 신뢰하는 validator나 직접 운영하는 노드처럼 다른 경로에서 받아야 합니다. `vexod snapshot restore`와 `sync`도 같은 신뢰를 `--trust-height`, `--trust-hash`로 받고, `vexod snapshot export --height`는 지정한 커밋 블록에 고정된 스냅샷을 내보냅니다. 소스는 그 state를 버전 히스토리에서 읽으므로, state를 아직 pruning하지 않은 신뢰 블록만 제공하고 그 외에는 아직 제공하는 가장 낮은 블록을 `earliest_height`로 담아 `410 Gone`을 반환합니다. 최근 신뢰 블록을 고르거나 archive 노드처럼 히스토리를 보관하는 소스를 사용하세요. 어느 쪽도 state를 메모리에 통째로 올리지 않습니다. 소스는 각 페이지를 그 state의 버전에서 읽고, 복원하는 노드는 페이지를 staging 저장소로 가져온 뒤 모든 네임스페이스가 스냅샷이 명시한 루트를 가질 때만 기존 저장소를 교체하므로, 거부되거나 중단된 복원은 저장소를 그대로 둡니다. `state_sync.max_snapshot_bytes`는 모든 요청을 합친 스냅샷 전체 바이트를 제한합니다. 로컬 상태가 이미 `state_sync.min_height`을 충족하고 `state_sync.trust_local_higher`이 true인 경우 시작 시 `state_sync_skipped`을 기록하고 로컬 저장소를 유지합니다.
+`network_config.json`은(는) 시작 상태 동기화도 소유합니다. 이는 아카이브 노드, 교체 유효성 검사기 또는 깨끗한 시스템에 복원된 노드에 유용합니다. `state_sync.enabled`가 true인 경우 `vexod start`는 `state_sync.snapshot_urls` 각각에 신뢰 블록 `state_sync.trust_height` / `state_sync.trust_hash`에 고정된 스냅샷을 요청하고(각 URL은 노드의 RPC URL이며, 먼저 `/snapshot/manifest`에서 그 블록의 manifest를, 이어서 `/snapshot/pairs`에서 모든 네임스페이스의 쌍을 페이지 단위로 받습니다), 그 블록의 state임이 증명되는 첫 스냅샷만 복원합니다. 스냅샷 헤더의 해시가 `trust_hash`와 같아야 하고, KV 쌍의 네임스페이스 루트로 다시 계산한 app hash가 state 레코드의 값 및 헤더가 커밋하는 값(블록 `ValidatorSetHeight - 1` 실행 후 state와 그 `validator_registry` 루트이므로 모든 과거 높이의 validator set도 함께 묶입니다)과 같아야 하며, 복제 state의 네임스페이스만 정확히 담아야 하고, 함께 담긴 헤더들이 신뢰 블록에서 state의 블록까지 해시로 이어져야 합니다. 노드는 그 블록에서 체인을 이어갑니다. 이를 통과해야 Pebble로 복원하고 인덱스를 다시 빌드한 다음 노드를 시작합니다. 따라서 스냅샷 소스는 신뢰하지 않으며, 신뢰 블록 해시는 신뢰하는 validator나 직접 운영하는 노드처럼 다른 경로에서 받아야 합니다. `vexod snapshot restore`와 `sync`도 같은 신뢰를 `--trust-height`, `--trust-hash`로 받고, `vexod snapshot export --height`는 지정한 커밋 블록에 고정된 스냅샷을 내보냅니다. 소스는 그 state를 버전 히스토리에서 읽으므로, state를 아직 pruning하지 않은 신뢰 블록만 제공하고 그 외에는 아직 제공하는 가장 낮은 블록을 `earliest_height`로 담아 `410 Gone`을 반환합니다. 최근 신뢰 블록을 고르거나 archive 노드처럼 히스토리를 보관하는 소스를 사용하세요. 어느 쪽도 state를 메모리에 통째로 올리지 않습니다. 소스는 각 페이지를 그 state의 버전에서 읽고, 복원하는 노드는 페이지를 staging 저장소로 가져온 뒤 모든 네임스페이스가 스냅샷이 명시한 루트를 가질 때만 기존 저장소를 교체하므로, 거부되거나 중단된 복원은 저장소를 그대로 둡니다. `state_sync.max_snapshot_bytes`는 모든 요청을 합친 스냅샷 전체 바이트를 제한합니다. 로컬 상태가 이미 `state_sync.min_height`을 충족하고 `state_sync.trust_local_higher`이 true인 경우 시작 시 `state_sync_skipped`을 기록하고 로컬 저장소를 유지합니다.
 
 예 `state_sync` 블록:
 ```json
@@ -520,7 +520,7 @@ vexod network init \
 - 공유된 `genesis.json`
 - 다른 검증인을 위한 `network_config.json` 피어 항목
 
-`vexod network up` 및 `make network-e2e`은 모든 유효성 검사기가 시작되기를 기다리는 동안 프로세스 수준 시간 초과를 사용하고, 연기 트랜잭션을 제출하고, 높이 증가를 관찰합니다. 기본 명령 제한 시간은 프로세스 시작, LevelDB 열기, P2P 서명 핸드셰이크, TLS/인증 확인, 트랜잭션 허용 및 최종성을 포함하므로 합의 간격보다 의도적으로 더 깁니다. 합의 시간 초과를 적극적으로 낮추는 경우 하네스를 너무 일찍 종료하는 대신 시작 오류를 진단할 수 있을 만큼 네트워크 가동 시간 초과를 크게 유지하십시오.
+`vexod network up` 및 `make network-e2e`은 모든 유효성 검사기가 시작되기를 기다리는 동안 프로세스 수준 시간 초과를 사용하고, 연기 트랜잭션을 제출하고, 높이 증가를 관찰합니다. 기본 명령 제한 시간은 프로세스 시작, Pebble 열기, P2P 서명 핸드셰이크, TLS/인증 확인, 트랜잭션 허용 및 최종성을 포함하므로 합의 간격보다 의도적으로 더 깁니다. 합의 시간 초과를 적극적으로 낮추는 경우 하네스를 너무 일찍 종료하는 대신 시작 오류를 진단할 수 있을 만큼 네트워크 가동 시간 초과를 크게 유지하십시오.
 
 컨테이너화된 네트워크 또는 다중 호스트 네트워크의 경우 JSON 파일에 토폴로지 값을 입력합니다.
 ```json

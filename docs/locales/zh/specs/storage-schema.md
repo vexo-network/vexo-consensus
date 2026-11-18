@@ -93,6 +93,14 @@
 
 - [英文规范文档](../../en/specs/storage-schema.md)
 
+## Pebble 后端与二进制记录
+
+默认后端是 Pebble(`github.com/cockroachdb/pebble/v2`),以 256 MiB block cache 和 64 MiB memtable 打开。记录以 `types` 包的规范二进制编码存储:最小 uvarint、带长度前缀的字节串和列表、原样 32 字节的哈希、`0` 或 `1` presence byte 之后的可选值,以及按声明结构体顺序排列的字段。解码器拒绝其他任何内容,包括多余的尾部字节,因此损坏的记录会被报告为错误而不会被读成另一个值,每条记录只有一种编码。早期构建(LevelDB、JSON 记录)写入的数据目录无法读取,也不会被转换:Pebble 会以 `format major version 1` 错误拒绝打开。此类节点应从 snapshot 恢复,或同步到空的数据目录。
+
+相关标识符:
+
+- `pebble: database "<dir>" was written in format major version 1, which is no longer supported`
+
 <!-- vexo-docs:technical-parity -->
 ## 技术等价附录
 

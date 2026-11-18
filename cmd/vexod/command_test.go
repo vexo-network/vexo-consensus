@@ -1383,7 +1383,7 @@ func TestRunProofVerifyCommand(t *testing.T) {
 		Value:         []byte("100"),
 		Exists:        true,
 	}
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1492,7 +1492,7 @@ func TestRunProofVerifyIBCCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	storage, err := store.OpenLevelDB(cfg.StoreDir())
+	storage, err := store.OpenPebble(cfg.StoreDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2872,7 +2872,7 @@ func restoredSnapshotState(t *testing.T, home string) store.StateRecord {
 	if err != nil {
 		t.Fatal(err)
 	}
-	restored, err := store.OpenLevelDB(cfg.StoreDir())
+	restored, err := store.OpenPebble(cfg.StoreDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2911,7 +2911,7 @@ func restoredRegistryRoot(t *testing.T, home string, state store.StateRecord) []
 	if err != nil {
 		t.Fatal(err)
 	}
-	restored, err := store.OpenLevelDB(cfg.StoreDir())
+	restored, err := store.OpenPebble(cfg.StoreDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3232,7 +3232,7 @@ func TestRunDoctorReportsOperationalReadinessAndRepairsIndexes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	storage, err := store.OpenLevelDB(cfg.StoreDir())
+	storage, err := store.OpenPebble(cfg.StoreDir())
 	if err != nil {
 		t.Fatal(err)
 	}

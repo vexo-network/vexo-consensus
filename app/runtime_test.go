@@ -86,7 +86,7 @@ func TestRuntimePrepareProposalFiltersInvalidTxs(t *testing.T) {
 }
 
 func TestRuntimePrepareProposalAcceptsContiguousPendingNonces(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -312,7 +312,7 @@ func TestRuntimeFinalizeRecordsFailedDeliverTxAndContinues(t *testing.T) {
 
 // A failed transaction's writes are discarded, a successful one's are kept.
 func TestRuntimeFinalizeDiscardsWritesOfFailedTx(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -370,7 +370,7 @@ func TestRuntimeFinalizeRecoversModulePanic(t *testing.T) {
 }
 
 func TestRuntimeAnteRejectsReplayCommitsNonceAndCollectsFee(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -450,7 +450,7 @@ func TestRuntimeDeliversSignedTxPayload(t *testing.T) {
 }
 
 func TestRuntimePassesStateStoreToModules(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -482,12 +482,12 @@ func TestRuntimePassesStateStoreToModules(t *testing.T) {
 }
 
 func TestRuntimeAppHashReflectsStateRoot(t *testing.T) {
-	firstStore, err := store.OpenLevelDB(t.TempDir())
+	firstStore, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer firstStore.Close()
-	secondStore, err := store.OpenLevelDB(t.TempDir())
+	secondStore, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -522,7 +522,7 @@ func TestRuntimeAppHashReflectsStateRoot(t *testing.T) {
 }
 
 func TestRuntimeStagedAppHashUsesBlockHeight(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

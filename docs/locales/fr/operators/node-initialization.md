@@ -25,7 +25,7 @@ Un nœud Home Vexo est un répertoire qui contient tout ce dont un nœud a besoi
   validator.key.json      # validator consensus signer, validator nodes only
   node.key.json           # P2P identity signer, validators and archives
   validator.vrf.key.json  # VRF key for committee randomness when enabled
-  data/                   # LevelDB chain/app/evidence/snapshot state
+  data/                   # Pebble chain/app/evidence/snapshot state
 ```
 La règle importante est simple : initialisez une fois, modifiez les fichiers de configuration, puis démarrez. Ne cachez pas le comportement du réseau dans les indicateurs du shell.
 
@@ -221,7 +221,7 @@ Les paramètres `network_config.json` RPC incluent également `shutdown_timeout`
 
 `network_config.json` Les paramètres P2P incluent `auth_replay_path`, `require_auth_replay_store` et `dial_timeout`. La valeur par défaut générée écrit les preuves de relecture occasionnelles dans `data/p2p_auth_replay.jsonl` et utilise un délai d'expiration de numérotation sortante `10s`. Pour les tests de bouclage privé, le magasin de relecture est pour l'essentiel une comptabilité inoffensive ; pour le P2P authentifié publiquement, il s'agit d'une exigence de sécurité car elle empêche une poignée de main signée capturée d'être rejouée après le redémarrage. `dial_timeout` doit être suffisamment long pour TLS, la vérification de la négociation signée et la latence inter-régions ; un réglage trop bas donne un aspect floconneux aux pairs en bonne santé et peut ralentir la vivacité après les redémarrages.
 
-`network_config.json` possède également la synchronisation de l'état de démarrage. Ceci est utile pour les nœuds d'archive, les validateurs de remplacement ou les nœuds restaurés sur une machine propre. Lorsque `state_sync.enabled` est vrai, `vexod start` télécharge le premier instantané valide de `state_sync.snapshot_urls`, vérifie l'ID de chaîne, la somme de contrôle, les racines d'état et les espaces de noms KV, le restaure dans LevelDB, reconstruit les index et démarre ensuite le nœud. Si l'état local satisfait déjà à `state_sync.min_height` et que `state_sync.trust_local_higher` est vrai, le démarrage enregistre `state_sync_skipped` et conserve le magasin local.
+`network_config.json` possède également la synchronisation de l'état de démarrage. Ceci est utile pour les nœuds d'archive, les validateurs de remplacement ou les nœuds restaurés sur une machine propre. Lorsque `state_sync.enabled` est vrai, `vexod start` télécharge le premier instantané valide de `state_sync.snapshot_urls`, vérifie l'ID de chaîne, la somme de contrôle, les racines d'état et les espaces de noms KV, le restaure dans Pebble, reconstruit les index et démarre ensuite le nœud. Si l'état local satisfait déjà à `state_sync.min_height` et que `state_sync.trust_local_higher` est vrai, le démarrage enregistre `state_sync_skipped` et conserve le magasin local.
 
 Exemple de bloc `state_sync` :
 ```json
@@ -515,7 +515,7 @@ Chaque maison de validateur générée reçoit :
 - un `genesis.json` partagé
 - `network_config.json` entrées homologues pour les autres validateurs
 
-`vexod network up` et `make network-e2e` utilisent un délai d'attente au niveau du processus en attendant que tous les validateurs démarrent, soumettent la transaction de fumée et observent la croissance en hauteur. Le délai d'expiration de la commande par défaut est intentionnellement plus long que l'intervalle de consensus, car il couvre le démarrage du processus, l'ouverture de LevelDB, les poignées de main signées P2P, les vérifications TLS/auth, l'admission des transactions et la finalité. Si vous réduisez de manière agressive les délais d'attente du consensus, gardez le délai d'attente du réseau suffisamment grand pour diagnostiquer les erreurs de démarrage au lieu de tuer le faisceau trop tôt.
+`vexod network up` et `make network-e2e` utilisent un délai d'attente au niveau du processus en attendant que tous les validateurs démarrent, soumettent la transaction de fumée et observent la croissance en hauteur. Le délai d'expiration de la commande par défaut est intentionnellement plus long que l'intervalle de consensus, car il couvre le démarrage du processus, l'ouverture de Pebble, les poignées de main signées P2P, les vérifications TLS/auth, l'admission des transactions et la finalité. Si vous réduisez de manière agressive les délais d'attente du consensus, gardez le délai d'attente du réseau suffisamment grand pour diagnostiquer les erreurs de démarrage au lieu de tuer le faisceau trop tôt.
 
 Pour les réseaux conteneurisés ou multi-hôtes, placez les valeurs de topologie dans un fichier JSON :
 ```json

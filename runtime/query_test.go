@@ -46,7 +46,7 @@ func TestRuntimeQueriesReturnNotFoundWithoutStore(t *testing.T) {
 }
 
 func TestRuntimeQueryProofSupportsHistoricalHeight(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func TestRuntimeQueryProofSupportsHistoricalHeight(t *testing.T) {
 }
 
 func TestRuntimePruneCallsAppModuleHooks(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +129,7 @@ func TestRuntimeAppQueryUsesContextAwareApplication(t *testing.T) {
 	}
 }
 
-func commitQueryProofState(t *testing.T, storage *store.LevelDBStore, height types.Height, value []byte) {
+func commitQueryProofState(t *testing.T, storage *store.PebbleStore, height types.Height, value []byte) {
 	t.Helper()
 	ctx := context.Background()
 	writes := []store.KVWrite{{Namespace: "bank", Key: []byte("alice"), Value: value}}

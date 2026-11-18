@@ -71,7 +71,7 @@ type fixture struct {
 	t        *testing.T
 	module   *Module
 	runtime  *vexoapp.Runtime
-	store    *vexostore.LevelDBStore
+	store    *vexostore.PebbleStore
 	registry *validator.StoreRegistry
 	signers  consensus.SimulationSigners
 	keys     map[types.ValidatorID]types.PublicKey
@@ -93,7 +93,7 @@ func newFixture(t *testing.T, options ...fixtureOption) *fixture {
 		option(&settings)
 	}
 
-	storage, err := vexostore.OpenLevelDB(t.TempDir())
+	storage, err := vexostore.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -159,7 +159,7 @@ func TestRuntimeFinalityVerifierRefusesValidatorSetsItHasNotExecuted(t *testing.
 }
 
 func TestRuntimeAppliesUpgradeHookAndPersistsSchemaState(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +206,7 @@ func TestRuntimeAppliesUpgradeHookAndPersistsSchemaState(t *testing.T) {
 }
 
 func TestRuntimeLoadsUpgradePlanFromStoreByHeight(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -263,7 +263,7 @@ func TestRuntimeLoadsUpgradePlanFromStoreByHeight(t *testing.T) {
 // Once a plan is applied the runtime must look for the next one: a plan that stays loaded after it
 // ran would shadow every later plan, and the chain would never upgrade a second time.
 func TestRuntimePicksUpTheNextStoredUpgradePlanAfterOneIsApplied(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -320,7 +320,7 @@ func TestRuntimePicksUpTheNextStoredUpgradePlanAfterOneIsApplied(t *testing.T) {
 }
 
 func TestRuntimeHaltsStoredUpgradePlanWithoutExecutorRecorder(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -364,7 +364,7 @@ func TestRuntimeHaltsStoredUpgradePlanWithoutExecutorRecorder(t *testing.T) {
 }
 
 func TestRuntimeWithStoreUsesDurableValidatorRegistry(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -439,7 +439,7 @@ func TestRuntimeContextCancellation(t *testing.T) {
 }
 
 func TestNetworkSafeRuntimeRequiresAtomicApplicationAtStartup(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -452,7 +452,7 @@ func TestNetworkSafeRuntimeRequiresAtomicApplicationAtStartup(t *testing.T) {
 }
 
 func TestNewNetworkSafeWithStoreRejectsUnsafeConfig(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -472,7 +472,7 @@ func TestNewNetworkSafeWithStoreRejectsMissingStore(t *testing.T) {
 }
 
 func TestNewNetworkSafeWithStoreAcceptsAtomicDurableInputs(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

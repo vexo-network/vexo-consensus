@@ -119,7 +119,7 @@ Use-os como valores de alerta iniciais e, em seguida, ajuste após uma linha de 
 | Tempos limite de rodada | 3x linha de base normal | loop de tempo limite contínuo | aumentar o orçamento de tempo limite ou investigar latência/partição |
 | Latência da proposta p95 | acima de 50% de `timeout_propose` | acima de 80% de `timeout_propose` | proponente de perfil, mempool, compromisso DA, disco |
 | Latência de voto p95 | acima de 50% do orçamento pré-votado/pré-comprometido | acima de 80% do orçamento | inspecionar CPU, signatário, transporte, contrapressão de fofoca |
-| Confirmar latência p95 | acima de 50% do intervalo de bloqueio | acima de 80% do intervalo de bloqueio | inspecionar LevelDB, raízes de estado, execução de EVM, instantâneos |
+| Confirmar latência p95 | acima de 50% do intervalo de bloqueio | acima de 80% do intervalo de bloqueio | inspecionar Pebble, raízes de estado, execução de EVM, instantâneos |
 | Tamanho do pool de memória | aumentando por 5 minutos | perto de `max_txs` ou rotatividade de substituição sustentada | inspecionar taxa base, taxa mínima, validade tx, spam |
 | Falhas do signatário | qualquer valor diferente de zero | falhas repetidas em uma janela de altura | pare o validador se aparecer guarda de sinal duplo ou incompatibilidade de chave |
 | Saúde instantânea | uma verificação falhou | falha repetida na exportação/verificação/restauração | pausar o serviço de sincronização de estado e executar o relatório de recuperação |
@@ -140,7 +140,7 @@ A regra mais importante: alerta sobre **mudanças ao longo do tempo**. Um único
 | Signatário remoto rejeita solicitações | custódia de chaves | log de auditoria do signatário, arquivo de proteção, arquivo nonce, logs de nó | distinguir rejeição política de interrupção de transporte |
 | Aumento de pares banidos | P2P/segurança | instantâneos de pontuação de pares e motivos de banimento | inspecionar fofocas malformadas ou configuração errada compartilhada |
 
-Durante incidentes, prefira preservar os dados em vez de “limpar”. A exclusão de WALs, addrbooks, signer guards ou diretórios LevelDB pode destruir a evidência necessária para distinguir um bug de um erro do operador.
+Durante incidentes, prefira preservar os dados em vez de “limpar”. A exclusão de WALs, addrbooks, signer guards ou diretórios Pebble pode destruir a evidência necessária para distinguir um bug de um erro do operador.
 
 ## Registrar eventos para manter
 

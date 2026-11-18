@@ -93,6 +93,14 @@ Este documento ajuda a entender namespace de durable storage, key schema e recov
 
 - [Documento canônico em inglês](../../en/specs/storage-schema.md)
 
+## Backend Pebble e registros binários
+
+O backend padrão é o Pebble (`github.com/cockroachdb/pebble/v2`), aberto com cache de blocos de 256 MiB e memtables de 64 MiB. Os registros são armazenados na codificação binária canônica do pacote `types`: uvarints mínimos, cadeias de bytes e listas prefixadas pelo comprimento, hashes como seus 32 bytes, um valor opcional após um byte de presença `0` ou `1`, e os campos na ordem da estrutura que os declara. Um decodificador rejeita qualquer outra coisa, inclusive bytes sobrando, então um registro danificado é reportado em vez de lido como outro valor; cada registro tem uma única codificação. Um diretório de dados escrito por um build anterior (LevelDB, registros JSON) não é legível nem convertido: o Pebble se recusa a abri-lo com um erro de `format major version 1`. Restaure esse nó a partir de um snapshot ou sincronize-o em um diretório de dados vazio.
+
+Identificadores relacionados:
+
+- `pebble: database "<dir>" was written in format major version 1, which is no longer supported`
+
 <!-- vexo-docs:technical-parity -->
 ## Apêndice de paridade técnica
 

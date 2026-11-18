@@ -25,7 +25,7 @@ Vexo ノード ホームは、ノードの起動に必要なものがすべて�
   validator.key.json      # validator consensus signer, validator nodes only
   node.key.json           # P2P identity signer, validators and archives
   validator.vrf.key.json  # VRF key for committee randomness when enabled
-  data/                   # LevelDB chain/app/evidence/snapshot state
+  data/                   # Pebble chain/app/evidence/snapshot state
 ```
 重要なルールは単純です。一度初期化し、構成ファイルを編集してから開始します。ネットワークの動作をシェル フラグ内に隠さないでください。
 
@@ -221,7 +221,7 @@ vexod start --home .vexo-archive-1
 
 `network_config.json` P2P 設定には、`auth_replay_path`、`require_auth_replay_store`、`dial_timeout` が含まれます。生成されたデフォルトは、ノンス リプレイ証拠を `data/p2p_auth_replay.jsonl` に書き込み、`10s` アウトバウンド ダイヤル タイムアウトを使用します。プライベート ループバック テストの場合、リプレイ ストアはほとんど無害な記録です。公開認証された P2P の場合、キャプチャされた署名付きハンドシェイク nonce が再起動後に再生されるのを防ぐため、これは安全要件です。 `dial_timeout` は、TLS、署名付きハンドシェイク検証、およびクロスリージョン遅延のために十分な長さである必要があります。設定が低すぎると、正常なピアが不安定に見え、再起動後の活性が低下する可能性があります。
 
-`network_config.json` は起動状態の同期も所有します。これは、アーカイブ ノード、交換用バリデータ、またはクリーンなマシンに復元されたノードに役立ちます。 `state_sync.enabled` が true の場合、`vexod start` は `state_sync.snapshot_urls` から最初の有効なスナップショットをダウンロードし、チェーン ID、チェックサム、ステート ルート、および KV 名前空間を検証し、それを LevelDB に復元し、インデックスを再構築してからノードを起動します。ローカル状態がすでに `state_sync.min_height` を満たし、`state_sync.trust_local_higher` が true の場合、起動ログは `state_sync_skipped` を記録し、ローカル ストアを保持します。
+`network_config.json` は起動状態の同期も所有します。これは、アーカイブ ノード、交換用バリデータ、またはクリーンなマシンに復元されたノードに役立ちます。 `state_sync.enabled` が true の場合、`vexod start` は `state_sync.snapshot_urls` から最初の有効なスナップショットをダウンロードし、チェーン ID、チェックサム、ステート ルート、および KV 名前空間を検証し、それを Pebble に復元し、インデックスを再構築してからノードを起動します。ローカル状態がすでに `state_sync.min_height` を満たし、`state_sync.trust_local_higher` が true の場合、起動ログは `state_sync_skipped` を記録し、ローカル ストアを保持します。
 
 `state_sync` ブロックの例:
 ```json
@@ -515,7 +515,7 @@ vexod network init \
 - 共有`genesis.json`
 - 他のバリデーターの `network_config.json` ピア エントリ
 
-`vexod network up` および `make network-e2e` は、すべてのバリデーターが開始し、スモーク トランザクションを送信し、高さの増加を観察するのを待機している間、プロセス レベルのタイムアウトを使用します。デフォルトのコマンド タイムアウトは、プロセスの起動、LevelDB のオープン、P2P 署名付きハンドシェイク、TLS/認証チェック、トランザクション許可、およびファイナリティをカバーするため、コンセンサス間隔よりも意図的に長く設定されています。コンセンサス タイムアウトを積極的に下げる場合は、ハーネスを早期に強制終了するのではなく、起動エラーを診断するのに十分なネットワークアップ タイムアウトを維持してください。
+`vexod network up` および `make network-e2e` は、すべてのバリデーターが開始し、スモーク トランザクションを送信し、高さの増加を観察するのを待機している間、プロセス レベルのタイムアウトを使用します。デフォルトのコマンド タイムアウトは、プロセスの起動、Pebble のオープン、P2P 署名付きハンドシェイク、TLS/認証チェック、トランザクション許可、およびファイナリティをカバーするため、コンセンサス間隔よりも意図的に長く設定されています。コンセンサス タイムアウトを積極的に下げる場合は、ハーネスを早期に強制終了するのではなく、起動エラーを診断するのに十分なネットワークアップ タイムアウトを維持してください。
 
 コンテナ化されたネットワークまたはマルチホスト ネットワークの場合は、トポロジ値を JSON ファイルに記述します。
 ```json

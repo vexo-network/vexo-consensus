@@ -25,7 +25,7 @@
   validator.key.json      # validator consensus signer, validator nodes only
   node.key.json           # P2P identity signer, validators and archives
   validator.vrf.key.json  # VRF key for committee randomness when enabled
-  data/                   # LevelDB chain/app/evidence/snapshot state
+  data/                   # Pebble chain/app/evidence/snapshot state
 ```
 महत्वपूर्ण नियम सरल है: एक बार प्रारंभ करें, कॉन्फ़िगरेशन फ़ाइलों को संपादित करें, फिर प्रारंभ करें। शेल फ़्लैग के अंदर नेटवर्क व्यवहार को न छिपाएँ।
 

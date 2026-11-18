@@ -104,7 +104,7 @@ VEXO_DISSEMINATION=proposals VEXO_THROUGHPUT=150000 VEXO_VALIDATORS=4 VEXO_UPLIN
 
 ## 测量之后的变化
 
-测量时,validator 开始等待 batch 后 300 ms 即请求完整 proposal。现在,每当 proposal 所指的某个 batch 到达,等待就重新开始;只有在 300 ms 内没有 batch 到达或总计超过 2 s(`maxLaneWait`)时才请求完整 proposal。此后未重新测量矩阵。测量使用的是没有签名、ante handler、mempool WAL 和 LevelDB 的测试应用。在生产栈(`VEXO_APP=runtime`:签名的 288 字节转账、ante handler、mempool WAL、LevelDB)上,同一主机上 4 个未整形的 validator 以约 2,000–2,200 tx/s 提交 50,000 笔转账;CPU profile 中区块执行占主导,主要是 LevelDB store 的状态树更新和读取。
+测量时,validator 开始等待 batch 后 300 ms 即请求完整 proposal。现在,每当 proposal 所指的某个 batch 到达,等待就重新开始;只有在 300 ms 内没有 batch 到达或总计超过 2 s(`maxLaneWait`)时才请求完整 proposal。此后未重新测量矩阵。测量使用的是没有签名、ante handler、mempool WAL 和 LevelDB 的测试应用。在生产栈(`VEXO_APP=runtime`:签名的 288 字节转账、ante handler、mempool WAL、Pebble store)上,同一主机上 4 个未整形的 validator 视主机负载以约 1,200–2,200 tx/s 提交 50,000 笔转账。与之前的 LevelDB 构建交替运行的结果为 1,960 对 1,916、1,411 对 1,279 tx/s,因此限制该负载的并不是存储后端。CPU profile 中区块执行占主导,主要是状态树更新以及对树节点及其版本的点读取。
 
 <!-- vexo-docs:technical-parity -->
 

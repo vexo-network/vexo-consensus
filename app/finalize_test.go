@@ -245,7 +245,7 @@ func TestFeeMarketIsApplicationState(t *testing.T) {
 			MaxBaseFee:               1_000_000,
 		},
 	}
-	run := func(t *testing.T) (*Runtime, *store.LevelDBStore, types.Hash) {
+	run := func(t *testing.T) (*Runtime, *store.PebbleStore, types.Hash) {
 		storage := openAnteStore(t)
 		runtime := newFeeRuntime(t, storage, &scriptedModule{name: "bank"}, config)
 		var appHash types.Hash

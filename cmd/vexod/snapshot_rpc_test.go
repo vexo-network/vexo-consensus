@@ -144,7 +144,7 @@ func TestSnapshotSyncRestoresTheStateOfTheTrustedBlock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	target, err := store.OpenLevelDB(cfg.StoreDir())
+	target, err := store.OpenPebble(cfg.StoreDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -412,7 +412,7 @@ func TestSnapshotRestoreRefusesASnapshotThatIsNotTheStateOfTheTrustedBlock(t *te
 	for name, testCase := range cases {
 		t.Run(name, func(t *testing.T) {
 			dir := filepath.Join(t.TempDir(), "target")
-			local, err := store.OpenLevelDB(dir)
+			local, err := store.OpenPebble(dir)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -424,7 +424,7 @@ func TestSnapshotRestoreRefusesASnapshotThatIsNotTheStateOfTheTrustedBlock(t *te
 			if !errors.Is(err, ErrUntrustedSnapshot) {
 				t.Fatalf("expected the snapshot to be refused, got %v", err)
 			}
-			target, err := store.OpenLevelDB(dir)
+			target, err := store.OpenPebble(dir)
 			if err != nil {
 				t.Fatal(err)
 			}

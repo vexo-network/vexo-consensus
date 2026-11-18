@@ -119,7 +119,7 @@ Sử dụng các giá trị này làm giá trị cảnh báo ban đầu, sau đ�
 | Thời gian chờ của vòng | 3x đường cơ sở bình thường | vòng lặp hết thời gian liên tục | tăng ngân sách thời gian chờ hoặc điều tra độ trễ/phân vùng |
 | Độ trễ đề xuất p95 | trên 50% `timeout_propose` | trên 80% `timeout_propose` | người đề xuất hồ sơ, mempool, cam kết DA, đĩa |
 | Độ trễ bình chọn p95 | trên 50% ngân sách bỏ phiếu trước/cam kết trước | trên 80% ngân sách | kiểm tra CPU, người ký, vận chuyển, tin đồn ngược áp |
-| Cam kết độ trễ p95 | trên 50% khoảng thời gian chặn | trên 80% khoảng thời gian chặn | kiểm tra LevelDB, gốc trạng thái, thực thi EVM, ảnh chụp nhanh |
+| Cam kết độ trễ p95 | trên 50% khoảng thời gian chặn | trên 80% khoảng thời gian chặn | kiểm tra Pebble, gốc trạng thái, thực thi EVM, ảnh chụp nhanh |
 | Kích thước nhóm | tăng trong 5 phút | gần `max_txs` hoặc thay thế liên tục | kiểm tra phí cơ sở, phí tối thiểu, tính hợp lệ của tx, thư rác |
 | Người ký thất bại | mọi giá trị khác 0 | lỗi lặp đi lặp lại trong một cửa sổ chiều cao | dừng trình xác thực nếu xuất hiện dấu bảo vệ kép hoặc khóa không khớp |
 | Ảnh chụp sức khỏe | một lần kiểm tra thất bại | xuất/xác minh/khôi phục không thành công nhiều lần | tạm dừng cung cấp đồng bộ hóa trạng thái và chạy báo cáo khôi phục |
@@ -140,7 +140,7 @@ Quy tắc quan trọng nhất: cảnh báo về **thay đổi theo thời gian**
 | Người ký từ xa từ chối yêu cầu | quyền giám hộ chìa khóa | nhật ký kiểm tra người ký, tệp bảo vệ, tệp nonce, nhật ký nút | phân biệt việc từ chối chính sách với việc ngừng vận chuyển |
 | Các đồng nghiệp bị cấm tăng đột biến | P2P/bảo mật | ảnh chụp nhanh điểm ngang hàng và lý do cấm | kiểm tra tin đồn không đúng định dạng hoặc chia sẻ cấu hình sai |
 
-Trong trường hợp xảy ra sự cố, hãy ưu tiên bảo toàn dữ liệu hơn là “dọn dẹp”. Việc xóa WAL, sổ bổ sung, bộ bảo vệ người ký hoặc thư mục LevelDB có thể phá hủy bằng chứng cần thiết để phân biệt lỗi với lỗi của người vận hành.
+Trong trường hợp xảy ra sự cố, hãy ưu tiên bảo toàn dữ liệu hơn là “dọn dẹp”. Việc xóa WAL, sổ bổ sung, bộ bảo vệ người ký hoặc thư mục Pebble có thể phá hủy bằng chứng cần thiết để phân biệt lỗi với lỗi của người vận hành.
 
 ## Ghi lại các sự kiện cần lưu giữ
 

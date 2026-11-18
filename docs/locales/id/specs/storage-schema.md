@@ -93,6 +93,14 @@ Dokumen ini membantu memahami namespace durable storage, key schema, dan recover
 
 - [Dokumen kanonik bahasa Inggris](../../en/specs/storage-schema.md)
 
+## Backend Pebble dan record biner
+
+Backend bawaan adalah Pebble (`github.com/cockroachdb/pebble/v2`), dibuka dengan block cache 256 MiB dan memtable 64 MiB. Record disimpan dalam encoding biner kanonis paket `types`: uvarint minimal, string byte dan daftar berawalan panjang, hash sebagai 32 byte-nya, nilai opsional di belakang byte keberadaan `0` atau `1`, dan field dalam urutan struct yang mendeklarasikannya. Decoder menolak hal lain apa pun, termasuk byte sisa, sehingga record yang rusak dilaporkan alih-alih dibaca sebagai nilai lain; setiap record hanya punya satu encoding. Direktori data yang ditulis build sebelumnya (LevelDB, record JSON) tidak dapat dibaca dan tidak dikonversi: Pebble menolak membukanya dengan galat `format major version 1`. Pulihkan node seperti itu dari snapshot atau sinkronkan ke direktori data kosong.
+
+Pengenal terkait:
+
+- `pebble: database "<dir>" was written in format major version 1, which is no longer supported`
+
 <!-- vexo-docs:technical-parity -->
 ## Lampiran Paritas Teknis
 

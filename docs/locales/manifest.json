@@ -51,11 +51,11 @@
     "consensus-protocol.md": "20098d445eeea45df8881844f9bcbf359f6739c1c685ddac0a1dbcf1fe07457f",
     "operators/add-validator.md": "e179c0f86fa3f14403c9a1a0eb55354bc8bdb5d71b23778571e4d68c68acae0e",
     "operators/evm-update-guide.md": "96335f0e33ecd394b053b23e845cc44f505d80bdf5fd16e286d286886a9fa51e",
-    "operators/node-initialization.md": "8477b7dea67e2a9f007fc85077dbdee7dd8d03abcbec5bda51586a429b969838",
-    "operators/observability.md": "957c791c15299bfa201605cfa6a2c9ca5c785ceda2b73b38ee573840b2f4f717",
+    "operators/node-initialization.md": "14430c442b079b1ca21bc314e4f26085dd497111ea3cd77b63988f6adfd8dcf2",
+    "operators/observability.md": "6ac8f1f46f15be2b5b628bdee922201ca6369b43e65d96350858849ecf2e6bc2",
     "production-readiness.md": "a8d6c73e16844abcc96bf6be3d2b114844231962392e9dfe2b3eb72139a231bf",
     "research/adaptive-recovery-hotstuff-paper.md": "9fd4cc4508620028bed49b90db835dafdb6133aa030c146af5718bb1fb1b386c",
-    "research/vexo-lanes-paper.md": "bf8d914a02ec9b5cf4a3c0528aa9ac280b5abd46eb000c2f4513d2c661071c64",
+    "research/vexo-lanes-paper.md": "6264b7227c53a830e6f46bc262ca55edb9288e82b80719012347068937f34816",
     "release/cosmos-comparison-gate.md": "7674da13bf525c3180aa729e260c45c8b04655abae6f5c3bc64cece674237549",
     "release/launch-runbook.md": "8f839ac66263a7297e426ad1ab9ffa60e8123cdd6892037c65b858582bbfb0e0",
     "release/release-pipeline.md": "e51ce123397a3b74307cf5e02d4864bd010ec46af987ce377b939a9577af4236",
@@ -69,7 +69,7 @@
     "specs/evm-native-accounting.md": "847b2c8408a1b78bcfa187d426a5dda2796b11444f60b8feb9c73f62b2cbda80",
     "specs/finality-proof-format.md": "41eebd199ea5da02faf3757c27afd3fd6598561a52953d8e08b10ba29e95738f",
     "specs/networking-spec.md": "c326f508d06be27085fbb72c0c99d369e91fedc2eafcc3dfe853a962d8ed03e7",
-    "specs/storage-schema.md": "3134788c2b088a16b71614390dd8b10552b49e873930f5563568ddd3665f3c64",
+    "specs/storage-schema.md": "90877c636dee7a06ea633f8bf41dd9d0c9fec987a64836a6ed5671aa95a43543",
     "specs/tx-format.md": "2927bb118da6b43bb347261627af55182ae8ce9b92aab421735bf994096b0406",
     "specs/validator-lifecycle.md": "2e1e7d823927b4fc3b07ef4bed6676af481b6bee801ca7c41b2be0226853d6e6"
   }

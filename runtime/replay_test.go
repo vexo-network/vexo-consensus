@@ -15,7 +15,7 @@ import (
 )
 
 func TestRuntimeReplayStoredBlocks(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +96,7 @@ func TestRuntimeReplayStoredBlocks(t *testing.T) {
 }
 
 func TestRuntimeReplayFromHistoricalSnapshotReexecutesApp(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestRuntimeReplayFromHistoricalSnapshotReexecutesApp(t *testing.T) {
 }
 
 func TestRuntimeReplayFromHistoricalSnapshotImportsModuleReplayNamespaces(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +163,7 @@ func TestRuntimeReplayFromHistoricalSnapshotImportsModuleReplayNamespaces(t *tes
 }
 
 func TestRuntimeReplayStrictDoesNotFallbackToStoredRange(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +204,7 @@ func TestRuntimeReplayStrictDoesNotFallbackToStoredRange(t *testing.T) {
 }
 
 func TestRuntimeSkipsInvalidReplayTxs(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -319,7 +319,7 @@ func TestRuntimeReplayRejectsInvalidRange(t *testing.T) {
 		t.Fatalf("without store should fail before range validation, got %v", err)
 	}
 
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -335,7 +335,7 @@ func TestRuntimeReplayRejectsInvalidRange(t *testing.T) {
 }
 
 func TestRuntimeReplayAllWithoutIndex(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -352,7 +352,7 @@ func TestRuntimeReplayAllWithoutIndex(t *testing.T) {
 }
 
 func TestRuntimeReplayDetectsAppHashMismatch(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -61,7 +61,7 @@ func TestParseCanonicalTxUnwrapsSignedPayload(t *testing.T) {
 }
 
 func TestAccountKeeperSequenceRoundTrip(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestAccountKeeperSequenceRoundTrip(t *testing.T) {
 }
 
 func TestAccountKeeperRejectsMissingSigner(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

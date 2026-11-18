@@ -38,7 +38,7 @@ const (
 
 // runtimeThroughputWorkload is a stream of signed transfers between funded accounts, executed by
 // the application stack a production node runs: the modules, the ante handler that verifies every
-// signature and sequences and prices every transaction against the fee market, the node's LevelDB
+// signature and sequences and prices every transaction against the fee market, the node's Pebble
 // store and a mempool that logs to a write-ahead log.
 //
 // Every validator has a client of its own, and every client accounts of its own, so a client

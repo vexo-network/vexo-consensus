@@ -25,7 +25,7 @@ Trang chủ nút Vexo là một thư mục chứa mọi thứ mà nút cần đ�
   validator.key.json      # validator consensus signer, validator nodes only
   node.key.json           # P2P identity signer, validators and archives
   validator.vrf.key.json  # VRF key for committee randomness when enabled
-  data/                   # LevelDB chain/app/evidence/snapshot state
+  data/                   # Pebble chain/app/evidence/snapshot state
 ```
 Quy tắc quan trọng rất đơn giản: khởi tạo một lần, chỉnh sửa tệp cấu hình, sau đó bắt đầu. Không ẩn hành vi mạng bên trong cờ shell.
 
@@ -221,7 +221,7 @@ Nhà nút sử dụng các tệp cấu hình riêng biệt để người vận 
 
 `network_config.json` Cài đặt P2P bao gồm `auth_replay_path`, `require_auth_replay_store` và `dial_timeout`. Giá trị mặc định được tạo sẽ ghi bằng chứng không phát lại vào `data/p2p_auth_replay.jsonl` và sử dụng thời gian chờ quay số đi `10s`. Đối với thử nghiệm vòng lặp riêng tư, cửa hàng phát lại hầu như không có tính chất ghi sổ; đối với P2P được xác thực công khai, đây là một yêu cầu an toàn vì nó ngăn không cho phát lại lần bắt tay đã ký đã ghi lại sau khi khởi động lại. `dial_timeout` phải đủ dài cho TLS, xác minh bắt tay có chữ ký và độ trễ giữa các khu vực; đặt nó quá thấp sẽ khiến các thiết bị ngang hàng khỏe mạnh trông không ổn định và có thể làm chậm hoạt động sau khi khởi động lại.
 
-`network_config.json` cũng sở hữu tính năng đồng bộ hóa trạng thái khởi động. Điều này hữu ích cho các nút lưu trữ, trình xác thực thay thế hoặc các nút được khôi phục trên máy sạch. Khi `state_sync.enabled` là đúng, `vexod start` tải xuống ảnh chụp nhanh hợp lệ đầu tiên từ `state_sync.snapshot_urls`, xác minh ID chuỗi, tổng kiểm tra, gốc trạng thái và không gian tên KV, khôi phục ảnh chụp nhanh đó vào LevelDB, xây dựng lại chỉ mục và chỉ sau đó khởi động nút. Nếu trạng thái cục bộ đã đáp ứng `state_sync.min_height` và `state_sync.trust_local_higher` là đúng, thì quá trình khởi động sẽ ghi nhật ký `state_sync_skipped` và giữ lại cửa hàng cục bộ.
+`network_config.json` cũng sở hữu tính năng đồng bộ hóa trạng thái khởi động. Điều này hữu ích cho các nút lưu trữ, trình xác thực thay thế hoặc các nút được khôi phục trên máy sạch. Khi `state_sync.enabled` là đúng, `vexod start` tải xuống ảnh chụp nhanh hợp lệ đầu tiên từ `state_sync.snapshot_urls`, xác minh ID chuỗi, tổng kiểm tra, gốc trạng thái và không gian tên KV, khôi phục ảnh chụp nhanh đó vào Pebble, xây dựng lại chỉ mục và chỉ sau đó khởi động nút. Nếu trạng thái cục bộ đã đáp ứng `state_sync.min_height` và `state_sync.trust_local_higher` là đúng, thì quá trình khởi động sẽ ghi nhật ký `state_sync_skipped` và giữ lại cửa hàng cục bộ.
 
 Ví dụ khối `state_sync`:
 ```json
@@ -515,7 +515,7 @@ Mỗi nhà xác thực được tạo sẽ nhận được:
 - một `genesis.json` được chia sẻ
 - `network_config.json` mục nhập ngang hàng cho những người xác nhận khác
 
-`vexod network up` và `make network-e2e` sử dụng thời gian chờ ở cấp quy trình trong khi chờ tất cả trình xác thực bắt đầu, gửi giao dịch khói và quan sát mức tăng trưởng chiều cao. Thời gian chờ lệnh mặc định cố ý dài hơn khoảng thời gian đồng thuận vì nó bao gồm quá trình khởi động, mở LevelDB, bắt tay có chữ ký P2P, kiểm tra TLS/xác thực, chấp nhận giao dịch và tính cuối cùng. Nếu bạn giảm mạnh thời gian chờ đồng thuận, hãy duy trì thời gian chờ kết nối mạng đủ lớn để chẩn đoán lỗi khởi động thay vì tắt khai thác quá sớm.
+`vexod network up` và `make network-e2e` sử dụng thời gian chờ ở cấp quy trình trong khi chờ tất cả trình xác thực bắt đầu, gửi giao dịch khói và quan sát mức tăng trưởng chiều cao. Thời gian chờ lệnh mặc định cố ý dài hơn khoảng thời gian đồng thuận vì nó bao gồm quá trình khởi động, mở Pebble, bắt tay có chữ ký P2P, kiểm tra TLS/xác thực, chấp nhận giao dịch và tính cuối cùng. Nếu bạn giảm mạnh thời gian chờ đồng thuận, hãy duy trì thời gian chờ kết nối mạng đủ lớn để chẩn đoán lỗi khởi động thay vì tắt khai thác quá sớm.
 
 Đối với các mạng được chứa trong vùng chứa hoặc nhiều máy chủ, hãy đặt các giá trị cấu trúc liên kết vào tệp JSON:
 ```json

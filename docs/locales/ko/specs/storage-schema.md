@@ -97,6 +97,14 @@
 
 store는 namespace마다 state tree(`stateproof`)를 KV 쌍 옆 `tree:` 아래에 보관합니다. key의 경로는 `sha256(key)`이고, 빈 subtree는 0, key가 하나뿐인 subtree는 그 key의 leaf, 나머지는 두 절반의 internal node입니다. 모양은 key 집합에만 의존하므로 모든 replica가 같은 root를 얻습니다. 쓰기는 같은 원자 batch 안에서 그 key 경로의 노드만 다시 쓰므로, 블록의 state root 비용은 namespace 크기가 아니라 `O(쓰기 수 × 깊이)`입니다. `ImportNamespace`는 그 namespace의 tree를 다시 만듭니다.
 
+## Pebble backend와 바이너리 레코드
+
+기본 backend는 Pebble(`github.com/cockroachdb/pebble/v2`)이며 256 MiB block cache와 64 MiB memtable로 엽니다. 레코드는 `types` 패키지의 canonical 바이너리 인코딩으로 저장됩니다: 최소 uvarint, 길이가 앞에 붙은 바이트열과 리스트, 32바이트 그대로의 해시, `0` 또는 `1` presence byte 뒤의 선택 값, 그리고 선언한 구조체 순서의 필드. 디코더는 뒤에 남는 바이트를 포함해 그 밖의 모든 것을 거부하므로 손상된 레코드는 다른 값으로 읽히지 않고 오류로 보고되며, 레코드의 인코딩은 하나뿐입니다. 이전 빌드(LevelDB, JSON 레코드)가 쓴 데이터 디렉터리는 읽을 수 없고 변환되지 않습니다. Pebble이 `format major version 1` 오류로 열기를 거부하므로, 그런 노드는 snapshot에서 복원하거나 빈 데이터 디렉터리로 동기화하세요.
+
+관련 식별자:
+
+- `pebble: database "<dir>" was written in format major version 1, which is no longer supported`
+
 <!-- vexo-docs:technical-parity -->
 ## 기술 동등성 부록
 

@@ -193,7 +193,7 @@ func TestStakingUndelegateWritesOnlyTheNewEntry(t *testing.T) {
 	for height := types.Height(2); height <= 5; height++ {
 		mustDeliver(t, module, storage, height, stakingTx("alice", "undelegate", "alice", "validator-1", "1"))
 	}
-	recording := &recordingBatchStore{LevelDBStore: storage}
+	recording := &recordingBatchStore{PebbleStore: storage}
 	if result := module.DeliverTx(vexoapp.Context{Height: 6, Store: recording}, stakingTx("alice", "undelegate", "alice", "validator-1", "1")); result.Code != 0 {
 		t.Fatalf("unexpected undelegate result: %+v", result)
 	}
@@ -259,7 +259,7 @@ func TestStakingWithdrawsOnlyMaturedUnbondingEntries(t *testing.T) {
 
 func TestStakingWithdrawUnbondedBatchFailureDoesNotMutateState(t *testing.T) {
 	base := newStakingStore(t)
-	storage := failingBatchStore{LevelDBStore: base, err: errors.New("batch failed")}
+	storage := failingBatchStore{PebbleStore: base, err: errors.New("batch failed")}
 	module := NewModuleWithUnbondingDelay(1)
 	fund(t, storage, "alice", 10)
 	entry := unbondingEntry{CreatedHeight: 1, ReleaseHeight: 2, Amount: 5}
@@ -283,7 +283,7 @@ func TestStakingDelegateBatchFailureDoesNotMutateState(t *testing.T) {
 	module := NewModuleWithUnbondingDelay(10)
 	registerValidator(t, module, base, 1, "operator", "validator-1", "10")
 	fund(t, base, "alice", 100)
-	storage := failingBatchStore{LevelDBStore: base, err: errors.New("batch failed")}
+	storage := failingBatchStore{PebbleStore: base, err: errors.New("batch failed")}
 	if result := deliver(module, storage, 7, stakingTx("alice", "delegate", "alice", "validator-1", "40")); result.Code == 0 {
 		t.Fatalf("expected delegate batch failure, got %+v", result)
 	}
@@ -300,7 +300,7 @@ func TestStakingDelegateBatchFailureDoesNotMutateState(t *testing.T) {
 
 func TestStakingClaimRewardsBatchFailureDoesNotMutateState(t *testing.T) {
 	base := newStakingStore(t)
-	storage := failingBatchStore{LevelDBStore: base, err: errors.New("batch failed")}
+	storage := failingBatchStore{PebbleStore: base, err: errors.New("batch failed")}
 	module := NewModule()
 	fund(t, storage, "alice", 10)
 	if err := setUint64(context.Background(), storage, ModuleName, rewardKey("alice", "validator-1"), 5); err != nil {
@@ -346,9 +346,9 @@ func TestStakingModuleQueries(t *testing.T) {
 	}
 }
 
-func newStakingStore(t *testing.T) *store.LevelDBStore {
+func newStakingStore(t *testing.T) *store.PebbleStore {
 	t.Helper()
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -357,7 +357,7 @@ func newStakingStore(t *testing.T) *store.LevelDBStore {
 }
 
 type failingBatchStore struct {
-	*store.LevelDBStore
+	*store.PebbleStore
 	err error
 }
 
@@ -367,13 +367,13 @@ func (storage failingBatchStore) SetBatch(ctx context.Context, writes []kvbatch.
 
 // recordingBatchStore records every batch a module commits.
 type recordingBatchStore struct {
-	*store.LevelDBStore
+	*store.PebbleStore
 	writes []kvbatch.KVWrite
 }
 
 func (storage *recordingBatchStore) SetBatch(ctx context.Context, writes []kvbatch.KVWrite) error {
 	storage.writes = append(storage.writes, writes...)
-	return storage.LevelDBStore.SetBatch(ctx, writes)
+	return storage.PebbleStore.SetBatch(ctx, writes)
 }
 
 type batchOnlyStore struct {

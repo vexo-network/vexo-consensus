@@ -381,9 +381,9 @@ func TestBankModuleCLIRejectsInvalidCommands(t *testing.T) {
 	}
 }
 
-func newBankStore(t *testing.T) *store.LevelDBStore {
+func newBankStore(t *testing.T) *store.PebbleStore {
 	t.Helper()
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

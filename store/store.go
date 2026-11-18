@@ -184,7 +184,7 @@ type HistoricalKVStore interface {
 
 type HistoricalSnapshotKVStore interface {
 	ExportNamespaceAt(ctx context.Context, height types.Height, namespace string) ([]KVPair, error)
-	// ExportRangeAt pages through a namespace at a past height in key order (see LevelDBStore).
+	// ExportRangeAt pages through a namespace at a past height in key order (see PebbleStore).
 	ExportRangeAt(ctx context.Context, height types.Height, namespace string, after []byte, limit int) ([]KVPair, bool, error)
 }
 

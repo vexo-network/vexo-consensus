@@ -43,7 +43,7 @@ func runDoctor(writer io.Writer, args []string) error {
 	configPath := flags.String("config", "", "config file path")
 	genesisPath := flags.String("genesis", "", "genesis file path")
 	keyPath := flags.String("key", "", "key file path")
-	repairIndexes := flags.Bool("repair-indexes", false, "rebuild LevelDB block and evidence indexes")
+	repairIndexes := flags.Bool("repair-indexes", false, "rebuild Pebble block and evidence indexes")
 	jsonOutput := flags.Bool("json", false, "write JSON output")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -91,7 +91,7 @@ func buildDoctorDocument(home string, configPath string, genesisPath string, key
 	if err != nil {
 		return document
 	}
-	storage, storeErr := store.OpenLevelDB(cfg.StoreDir())
+	storage, storeErr := store.OpenPebble(cfg.StoreDir())
 	document.addCheck("store_open", storeErr)
 	if storeErr != nil {
 		return document

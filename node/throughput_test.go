@@ -49,7 +49,7 @@ import (
 //
 // The test application accepts unsigned transactions of 89 bytes without authenticating, pricing or
 // sequencing them. VEXO_APP=runtime builds every validator as cmd/vexod does, with the modules, the
-// ante handler (signature verification, nonces, fees, fee market), the LevelDB store and a mempool
+// ante handler (signature verification, nonces, fees, fee market), the Pebble store and a mempool
 // write-ahead log, and submits transfers signed before the run starts. An account submits its next
 // transaction once the validator it submits to committed the previous one, so VEXO_ACCOUNTS bounds
 // the backlog. Genesis funds every account on every validator, which takes seconds per thousand

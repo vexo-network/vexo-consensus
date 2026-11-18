@@ -9,7 +9,7 @@ import (
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
-func commitWritesForTest(t *testing.T, store *LevelDBStore, height types.Height, writes ...KVWrite) {
+func commitWritesForTest(t *testing.T, store *PebbleStore, height types.Height, writes ...KVWrite) {
 	t.Helper()
 	if err := store.CommitBlockStateWithWrites(
 		context.Background(),
@@ -26,7 +26,7 @@ func setWrite(namespace, key, value string) KVWrite {
 	return KVWrite{Namespace: namespace, Key: []byte(key), Value: []byte(value)}
 }
 
-func valueAt(t *testing.T, store *LevelDBStore, height types.Height, namespace, key string) (string, bool) {
+func valueAt(t *testing.T, store *PebbleStore, height types.Height, namespace, key string) (string, bool) {
 	t.Helper()
 	value, err := store.GetAt(context.Background(), height, namespace, []byte(key))
 	if errors.Is(err, ErrKeyNotFound) {
@@ -38,7 +38,7 @@ func valueAt(t *testing.T, store *LevelDBStore, height types.Height, namespace, 
 	return string(value), true
 }
 
-func pairsAt(t *testing.T, store *LevelDBStore, height types.Height, namespace string, prefix string) string {
+func pairsAt(t *testing.T, store *PebbleStore, height types.Height, namespace string, prefix string) string {
 	t.Helper()
 	var keyPrefix []byte
 	if prefix != "" {

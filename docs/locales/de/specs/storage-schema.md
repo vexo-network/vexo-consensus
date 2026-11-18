@@ -93,6 +93,14 @@ Dieses Dokument hilft dabei, durable storage namespaces, key schema und recovery
 
 - [Englisches kanonisches Dokument](../../en/specs/storage-schema.md)
 
+## Pebble-Backend und binäre Datensätze
+
+Das Standard-Backend ist Pebble (`github.com/cockroachdb/pebble/v2`), geöffnet mit 256 MiB Block-Cache und 64 MiB Memtables. Datensätze werden in der kanonischen Binärkodierung des Pakets `types` gespeichert: minimale Uvarints, längenpräfixierte Bytefolgen und Listen, Hashes als ihre 32 Bytes, ein optionaler Wert hinter einem Präsenzbyte `0` oder `1` und Felder in der Reihenfolge der deklarierenden Struktur. Ein Decoder weist alles andere zurück, auch überzählige Bytes, sodass ein beschädigter Datensatz gemeldet und nicht als anderer Wert gelesen wird; jeder Datensatz hat genau eine Kodierung. Ein von einem früheren Build (LevelDB, JSON-Datensätze) geschriebenes Datenverzeichnis ist nicht lesbar und wird nicht konvertiert: Pebble verweigert das Öffnen mit einem Fehler zu `format major version 1`. Einen solchen Knoten aus einem Snapshot wiederherstellen oder in ein leeres Datenverzeichnis synchronisieren.
+
+Zugehörige Bezeichner:
+
+- `pebble: database "<dir>" was written in format major version 1, which is no longer supported`
+
 <!-- vexo-docs:technical-parity -->
 ## Anhang zur technischen Parität
 

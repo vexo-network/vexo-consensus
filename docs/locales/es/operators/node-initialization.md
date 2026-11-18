@@ -25,7 +25,7 @@ El inicio de un nodo Vexo es un directorio que contiene lo necesario para que un
   validator.key.json      # validator consensus signer, validator nodes only
   node.key.json           # P2P identity signer, validators and archives
   validator.vrf.key.json  # VRF key for committee randomness when enabled
-  data/                   # LevelDB chain/app/evidence/snapshot state
+  data/                   # Pebble chain/app/evidence/snapshot state
 ```
 La regla importante es simple: inicialice una vez, edite los archivos de configuración y luego comience. No oculte el comportamiento de la red dentro de los indicadores del shell.
 
@@ -221,7 +221,7 @@ Los hogares de nodos usan archivos de configuración separados para que los oper
 
 `network_config.json` Las configuraciones P2P incluyen `auth_replay_path`, `require_auth_replay_store` y `dial_timeout`. El valor predeterminado generado escribe evidencia de reproducción nonce en `data/p2p_auth_replay.jsonl` y utiliza un tiempo de espera de marcado saliente `10s`. Para las pruebas de loopback privado, la tienda de reproducción es en su mayor parte una contabilidad inofensiva; para P2P autenticado públicamente, es un requisito de seguridad porque evita que un protocolo de enlace firmado y capturado se reproduzca después del reinicio. `dial_timeout` debería ser lo suficientemente largo para TLS, verificación de protocolo de enlace firmado y latencia entre regiones; establecerlo demasiado bajo hace que los compañeros sanos parezcan inestables y puede ralentizar la vitalidad después de los reinicios.
 
-`network_config.json` también posee la sincronización del estado de inicio. Esto es útil para nodos de archivo, validadores de reemplazo o nodos restaurados en una máquina limpia. Cuando `state_sync.enabled` es verdadero, `vexod start` descarga la primera instantánea válida de `state_sync.snapshot_urls`, verifica el ID de la cadena, la suma de comprobación, las raíces del estado y los espacios de nombres KV, la restaura en LevelDB, reconstruye los índices y solo entonces inicia el nodo. Si el estado local ya satisface `state_sync.min_height` y `state_sync.trust_local_higher` es verdadero, el inicio registra `state_sync_skipped` y mantiene el almacén local.
+`network_config.json` también posee la sincronización del estado de inicio. Esto es útil para nodos de archivo, validadores de reemplazo o nodos restaurados en una máquina limpia. Cuando `state_sync.enabled` es verdadero, `vexod start` descarga la primera instantánea válida de `state_sync.snapshot_urls`, verifica el ID de la cadena, la suma de comprobación, las raíces del estado y los espacios de nombres KV, la restaura en Pebble, reconstruye los índices y solo entonces inicia el nodo. Si el estado local ya satisface `state_sync.min_height` y `state_sync.trust_local_higher` es verdadero, el inicio registra `state_sync_skipped` y mantiene el almacén local.
 
 Ejemplo de bloque `state_sync`:
 ```json
@@ -515,7 +515,7 @@ Cada hogar validador generado recibe:
 - un `genesis.json` compartido
 - `network_config.json` entradas de pares para los otros validadores
 
-`vexod network up` y `make network-e2e` utilizan un tiempo de espera a nivel de proceso mientras esperan que todos los validadores comiencen, envíen la transacción de humo y observen el crecimiento en altura. El tiempo de espera predeterminado del comando es intencionalmente más largo que el intervalo de consenso porque cubre el inicio del proceso, la apertura de LevelDB, los protocolos de enlace firmados P2P, las comprobaciones de autenticación/TLS, la admisión de transacciones y la finalidad. Si reduce los tiempos de espera de consenso de manera agresiva, mantenga el tiempo de espera de la red lo suficientemente grande como para diagnosticar errores de inicio en lugar de cerrar el arnés demasiado pronto.
+`vexod network up` y `make network-e2e` utilizan un tiempo de espera a nivel de proceso mientras esperan que todos los validadores comiencen, envíen la transacción de humo y observen el crecimiento en altura. El tiempo de espera predeterminado del comando es intencionalmente más largo que el intervalo de consenso porque cubre el inicio del proceso, la apertura de Pebble, los protocolos de enlace firmados P2P, las comprobaciones de autenticación/TLS, la admisión de transacciones y la finalidad. Si reduce los tiempos de espera de consenso de manera agresiva, mantenga el tiempo de espera de la red lo suficientemente grande como para diagnosticar errores de inicio en lugar de cerrar el arnés demasiado pronto.
 
 Para redes en contenedores o de múltiples hosts, coloque los valores de topología en un archivo JSON:
 ```json

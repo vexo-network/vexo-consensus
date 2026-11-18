@@ -56,7 +56,7 @@ func TestGovernanceModuleLifecycle(t *testing.T) {
 }
 
 func TestGovernanceModuleLifecycleThroughRuntime(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
+	storage, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ func TestGovernanceModuleStateLivesInTheContextStore(t *testing.T) {
 		t.Fatalf("expected a module instance to read the proposal from the store it is given, got %+v", response)
 	}
 
-	empty, err := store.OpenLevelDB(t.TempDir())
+	empty, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,7 +281,7 @@ func TestGovernanceModuleQueryRejectsInvalidRequests(t *testing.T) {
 }
 
 type failingStore struct {
-	*store.LevelDBStore
+	*store.PebbleStore
 	err error
 }
 
@@ -296,7 +296,7 @@ func (storage failingStore) Set(ctx context.Context, namespace string, key []byt
 func TestGovernanceModulePropagatesStoreErrors(t *testing.T) {
 	chain := newTestChain(t, testPolicy())
 	expected := errors.New("store failed")
-	failing := failingStore{LevelDBStore: chain.store, err: expected}
+	failing := failingStore{PebbleStore: chain.store, err: expected}
 	module := NewModuleWithPolicy(testPolicy())
 
 	result := module.DeliverTx(vexoapp.Context{Height: 1, Store: failing}, govTx("alice", "submit", "alice", "title", "execution", "max_gas", "20000000"))

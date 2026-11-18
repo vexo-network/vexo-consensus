@@ -3,14 +3,10 @@ package store
 import (
 	"context"
 	"encoding/binary"
-	"encoding/json"
 	"errors"
+	"github.com/cockroachdb/pebble/v2"
 	"sync"
 
-	"github.com/syndtr/goleveldb/leveldb"
-	leveldberrors "github.com/syndtr/goleveldb/leveldb/errors"
-	"github.com/syndtr/goleveldb/leveldb/opt"
-	"github.com/syndtr/goleveldb/leveldb/util"
 	"github.com/vexo-network/vexo-consensus/stateproof"
 	"github.com/vexo-network/vexo-consensus/types"
 	"github.com/vexo-network/vexo-consensus/upgrade"
@@ -33,67 +29,75 @@ var (
 	upgradePlanNamePrefix   = []byte("upgrade:plan:name:")
 )
 
-type LevelDBStore struct {
-	db           *leveldb.DB
-	writeOptions *opt.WriteOptions
+type PebbleStore struct {
+	db           *pebble.DB
+	writeOptions *pebble.WriteOptions
 	// writeMu orders the writes that maintain state history: block commits,
 	// direct writes, imports and pruning each read the history they extend.
-	writeMu sync.Mutex
+	writeMu   sync.Mutex
+	closeOnce sync.Once
 }
 
-type LevelDBOptions struct {
+type PebbleOptions struct {
 	SyncWrites bool
 }
 
 type kvHistoryRecord struct {
-	Height    types.Height `json:"height"`
-	Namespace string       `json:"namespace"`
-	Key       []byte       `json:"key"`
-	Value     []byte       `json:"value,omitempty"`
-	Deleted   bool         `json:"deleted,omitempty"`
+	Height    types.Height
+	Namespace string
+	Key       []byte
+	Value     []byte
+	Deleted   bool
 }
 
-func OpenLevelDB(path string) (*LevelDBStore, error) {
-	return OpenLevelDBWithOptions(path, LevelDBOptions{SyncWrites: true})
+func OpenPebble(path string) (*PebbleStore, error) {
+	return OpenPebbleWithOptions(path, PebbleOptions{SyncWrites: true})
 }
 
-// levelDBWriteBuffer is the size of the memtable. A block commit is one batch holding the whole
-// block, so the memtable must hold several: a batch larger than it bypasses the memtable and is
-// written as level-0 tables in the commit itself, and a small memtable flushes on nearly every
-// block, stalling writes behind level-0 compaction.
-const levelDBWriteBuffer = 64 << 20
+// pebbleMemTableSize is the size of a memtable. A block commit is one batch holding the whole
+// block, so a memtable must hold several: a small memtable flushes on nearly every block, stalling
+// writes behind level-0 compaction.
+const pebbleMemTableSize = 64 << 20
 
-func OpenLevelDBWithOptions(path string, options LevelDBOptions) (*LevelDBStore, error) {
-	db, err := leveldb.OpenFile(path, &opt.Options{
-		WriteBuffer:         levelDBWriteBuffer,
-		CompactionTableSize: 8 << 20,
+// pebbleCacheSize is the block cache. Executing a block walks the state trees from their roots to
+// every key it writes, so the upper levels of the trees are read by every block.
+const pebbleCacheSize = 256 << 20
+
+func OpenPebbleWithOptions(path string, options PebbleOptions) (*PebbleStore, error) {
+	cache := pebble.NewCache(pebbleCacheSize)
+	defer cache.Unref()
+	db, err := pebble.Open(path, &pebble.Options{
+		Cache:        cache,
+		MemTableSize: pebbleMemTableSize,
+		Logger:       quietLogger{},
 	})
 	if err != nil {
 		return nil, err
 	}
-	return &LevelDBStore{
-		db:           db,
-		writeOptions: &opt.WriteOptions{Sync: options.SyncWrites},
-	}, nil
+	writeOptions := pebble.NoSync
+	if options.SyncWrites {
+		writeOptions = pebble.Sync
+	}
+	return &PebbleStore{db: db, writeOptions: writeOptions}, nil
 }
 
-func (store *LevelDBStore) writeBatch(batch *leveldb.Batch) error {
-	return store.db.Write(batch, store.writeOptions)
+func (store *PebbleStore) writeBatch(batch *pebble.Batch) error {
+	return batch.Commit(store.writeOptions)
 }
 
-func (store *LevelDBStore) put(key []byte, value []byte) error {
-	return store.db.Put(key, value, store.writeOptions)
+func (store *PebbleStore) put(key []byte, value []byte) error {
+	return store.db.Set(key, value, store.writeOptions)
 }
 
-func (store *LevelDBStore) delete(key []byte) error {
+func (store *PebbleStore) delete(key []byte) error {
 	return store.db.Delete(key, store.writeOptions)
 }
 
-func (store *LevelDBStore) IsNotFound(err error) bool {
+func (store *PebbleStore) IsNotFound(err error) bool {
 	return errors.Is(err, ErrKeyNotFound)
 }
 
-func (store *LevelDBStore) SaveBlock(ctx context.Context, record BlockRecord) error {
+func (store *PebbleStore) SaveBlock(ctx context.Context, record BlockRecord) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -103,26 +107,21 @@ func (store *LevelDBStore) SaveBlock(ctx context.Context, record BlockRecord) er
 		return ErrInvalidBlockRecord
 	}
 
-	encoded, err := json.Marshal(record)
-	if err != nil {
-		return err
-	}
-	batch := new(leveldb.Batch)
-	batch.Put(blockHeightKey(record.Block.Header.Height), encoded)
-	batch.Put(blockHashKey(record.Hash), blockHashValue(record.Block.Header.Height))
+	encoded := encodeBlockRecord(record)
+	batch := store.db.NewBatch()
+	defer batch.Close()
+	batch.Set(blockHeightKey(record.Block.Header.Height), encoded, nil)
+	batch.Set(blockHashKey(record.Hash), blockHashValue(record.Block.Header.Height), nil)
 	index, err := store.nextBlockIndex(record.Block.Header.Height)
 	if err != nil {
 		return err
 	}
-	encodedIndex, err := json.Marshal(index)
-	if err != nil {
-		return err
-	}
-	batch.Put(blockIndexKey, encodedIndex)
+	encodedIndex := encodeBlockIndex(index)
+	batch.Set(blockIndexKey, encodedIndex, nil)
 	return store.writeBatch(batch)
 }
 
-func (store *LevelDBStore) BlockByHeight(ctx context.Context, height types.Height) (BlockRecord, error) {
+func (store *PebbleStore) BlockByHeight(ctx context.Context, height types.Height) (BlockRecord, error) {
 	select {
 	case <-ctx.Done():
 		return BlockRecord{}, ctx.Err()
@@ -138,15 +137,15 @@ func (store *LevelDBStore) BlockByHeight(ctx context.Context, height types.Heigh
 	return record, nil
 }
 
-func (store *LevelDBStore) BlockByHash(ctx context.Context, hash types.Hash) (BlockRecord, error) {
+func (store *PebbleStore) BlockByHash(ctx context.Context, hash types.Hash) (BlockRecord, error) {
 	select {
 	case <-ctx.Done():
 		return BlockRecord{}, ctx.Err()
 	default:
 	}
-	encodedHeight, err := store.db.Get(blockHashKey(hash), nil)
+	encodedHeight, err := getValue(store.db, blockHashKey(hash))
 	if err != nil {
-		if errors.Is(err, leveldberrors.ErrNotFound) {
+		if errors.Is(err, pebble.ErrNotFound) {
 			return BlockRecord{}, ErrBlockNotFound
 		}
 		return BlockRecord{}, err
@@ -164,29 +163,29 @@ func (store *LevelDBStore) BlockByHash(ctx context.Context, hash types.Hash) (Bl
 	return record, nil
 }
 
-func (store *LevelDBStore) BlockIndex(ctx context.Context) (BlockIndex, error) {
+func (store *PebbleStore) BlockIndex(ctx context.Context) (BlockIndex, error) {
 	select {
 	case <-ctx.Done():
 		return BlockIndex{}, ctx.Err()
 	default:
 	}
 
-	encoded, err := store.db.Get(blockIndexKey, nil)
+	encoded, err := getValue(store.db, blockIndexKey)
 	if err != nil {
-		if errors.Is(err, leveldberrors.ErrNotFound) {
+		if errors.Is(err, pebble.ErrNotFound) {
 			return BlockIndex{}, ErrBlockIndexNotFound
 		}
 		return BlockIndex{}, err
 	}
 
-	var index BlockIndex
-	if err := json.Unmarshal(encoded, &index); err != nil {
+	index, err := decodeBlockIndex(encoded)
+	if err != nil {
 		return BlockIndex{}, err
 	}
 	return index, nil
 }
 
-func (store *LevelDBStore) PruneBelow(ctx context.Context, retainFrom types.Height) (PruneResult, error) {
+func (store *PebbleStore) PruneBelow(ctx context.Context, retainFrom types.Height) (PruneResult, error) {
 	select {
 	case <-ctx.Done():
 		return PruneResult{}, ctx.Err()
@@ -203,7 +202,8 @@ func (store *LevelDBStore) PruneBelow(ctx context.Context, retainFrom types.Heig
 		return PruneResult{}, err
 	}
 	result := PruneResult{RetainFromHeight: retainFrom}
-	batch := new(leveldb.Batch)
+	batch := store.db.NewBatch()
+	defer batch.Close()
 
 	for height := index.EarliestHeight; height < retainFrom && height <= index.LatestHeight; height++ {
 		record, err := store.getBlock(blockHeightKey(height))
@@ -213,8 +213,8 @@ func (store *LevelDBStore) PruneBelow(ctx context.Context, retainFrom types.Heig
 		if err != nil {
 			return PruneResult{}, err
 		}
-		batch.Delete(blockHeightKey(height))
-		batch.Delete(blockHashKey(record.Hash))
+		batch.Delete(blockHeightKey(height), nil)
+		batch.Delete(blockHashKey(record.Hash), nil)
 		result.PrunedBlocks++
 	}
 
@@ -240,13 +240,10 @@ func (store *LevelDBStore) PruneBelow(ctx context.Context, retainFrom types.Heig
 		return PruneResult{}, err
 	}
 	if newIndex.TotalBlocks == 0 {
-		batch.Delete(blockIndexKey)
+		batch.Delete(blockIndexKey, nil)
 	} else {
-		encodedIndex, err := json.Marshal(newIndex)
-		if err != nil {
-			return PruneResult{}, err
-		}
-		batch.Put(blockIndexKey, encodedIndex)
+		encodedIndex := encodeBlockIndex(newIndex)
+		batch.Set(blockIndexKey, encodedIndex, nil)
 	}
 	if err := store.writeBatch(batch); err != nil {
 		return PruneResult{}, err
@@ -254,7 +251,7 @@ func (store *LevelDBStore) PruneBelow(ctx context.Context, retainFrom types.Heig
 	return result, nil
 }
 
-func (store *LevelDBStore) PruneByRetention(ctx context.Context, policy RetentionPolicy) (PruneResult, error) {
+func (store *PebbleStore) PruneByRetention(ctx context.Context, policy RetentionPolicy) (PruneResult, error) {
 	select {
 	case <-ctx.Done():
 		return PruneResult{}, ctx.Err()
@@ -274,7 +271,7 @@ func (store *LevelDBStore) PruneByRetention(ctx context.Context, policy Retentio
 	return store.PruneBelow(ctx, retainFrom)
 }
 
-func (store *LevelDBStore) SaveState(ctx context.Context, state StateRecord) error {
+func (store *PebbleStore) SaveState(ctx context.Context, state StateRecord) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -284,50 +281,45 @@ func (store *LevelDBStore) SaveState(ctx context.Context, state StateRecord) err
 		return ErrInvalidStateRecord
 	}
 
-	encoded, err := json.Marshal(state)
-	if err != nil {
-		return err
-	}
-	batch := new(leveldb.Batch)
-	batch.Put(stateLatestKey, encoded)
-	batch.Put(stateHeightKey(state.Height), encoded)
+	encoded := encodeStateRecord(state)
+	batch := store.db.NewBatch()
+	defer batch.Close()
+	batch.Set(stateLatestKey, encoded, nil)
+	batch.Set(stateHeightKey(state.Height), encoded, nil)
 	return store.writeBatch(batch)
 }
 
-func (store *LevelDBStore) SaveSchemaState(ctx context.Context, state upgrade.State) error {
+func (store *PebbleStore) SaveSchemaState(ctx context.Context, state upgrade.State) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
 	}
-	encoded, err := json.Marshal(state)
-	if err != nil {
-		return err
-	}
+	encoded := encodeSchemaState(state)
 	return store.put(schemaStateKey, encoded)
 }
 
-func (store *LevelDBStore) SchemaState(ctx context.Context) (upgrade.State, error) {
+func (store *PebbleStore) SchemaState(ctx context.Context) (upgrade.State, error) {
 	select {
 	case <-ctx.Done():
 		return upgrade.State{}, ctx.Err()
 	default:
 	}
-	encoded, err := store.db.Get(schemaStateKey, nil)
+	encoded, err := getValue(store.db, schemaStateKey)
 	if err != nil {
-		if errors.Is(err, leveldberrors.ErrNotFound) {
+		if errors.Is(err, pebble.ErrNotFound) {
 			return upgrade.State{}, ErrStateNotFound
 		}
 		return upgrade.State{}, err
 	}
-	var state upgrade.State
-	if err := json.Unmarshal(encoded, &state); err != nil {
+	state, err := decodeSchemaState(encoded)
+	if err != nil {
 		return upgrade.State{}, err
 	}
 	return state, nil
 }
 
-func (store *LevelDBStore) SaveUpgradePlan(ctx context.Context, plan upgrade.Plan) error {
+func (store *PebbleStore) SaveUpgradePlan(ctx context.Context, plan upgrade.Plan) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -340,18 +332,16 @@ func (store *LevelDBStore) SaveUpgradePlan(ctx context.Context, plan upgrade.Pla
 	if err := upgrade.ValidateSchedule(plan, currentHeight); err != nil {
 		return err
 	}
-	encoded, err := json.Marshal(plan)
-	if err != nil {
-		return err
-	}
-	batch := new(leveldb.Batch)
-	batch.Put(upgradePlanHeightKey(plan.Height), encoded)
-	batch.Put(upgradePlanNameKey(plan.Name), encoded)
+	encoded := encodeUpgradePlan(plan)
+	batch := store.db.NewBatch()
+	defer batch.Close()
+	batch.Set(upgradePlanHeightKey(plan.Height), encoded, nil)
+	batch.Set(upgradePlanNameKey(plan.Name), encoded, nil)
 	return store.writeBatch(batch)
 }
 
 // currentHeight is the height of the latest committed state, zero before the first block.
-func (store *LevelDBStore) currentHeight(ctx context.Context) (types.Height, error) {
+func (store *PebbleStore) currentHeight(ctx context.Context) (types.Height, error) {
 	state, err := store.LatestState(ctx)
 	if errors.Is(err, ErrStateNotFound) {
 		return 0, nil
@@ -362,7 +352,7 @@ func (store *LevelDBStore) currentHeight(ctx context.Context) (types.Height, err
 	return state.Height, nil
 }
 
-func (store *LevelDBStore) UpgradePlanByHeight(ctx context.Context, height types.Height) (upgrade.Plan, bool, error) {
+func (store *PebbleStore) UpgradePlanByHeight(ctx context.Context, height types.Height) (upgrade.Plan, bool, error) {
 	select {
 	case <-ctx.Done():
 		return upgrade.Plan{}, false, ctx.Err()
@@ -374,7 +364,7 @@ func (store *LevelDBStore) UpgradePlanByHeight(ctx context.Context, height types
 	return store.upgradePlan(upgradePlanHeightKey(height))
 }
 
-func (store *LevelDBStore) UpgradePlanByName(ctx context.Context, name string) (upgrade.Plan, bool, error) {
+func (store *PebbleStore) UpgradePlanByName(ctx context.Context, name string) (upgrade.Plan, bool, error) {
 	select {
 	case <-ctx.Done():
 		return upgrade.Plan{}, false, ctx.Err()
@@ -387,26 +377,26 @@ func (store *LevelDBStore) UpgradePlanByName(ctx context.Context, name string) (
 }
 
 // NextUpgradePlan returns the scheduled plan with the lowest height at or above height.
-func (store *LevelDBStore) NextUpgradePlan(ctx context.Context, height types.Height) (upgrade.Plan, bool, error) {
+func (store *PebbleStore) NextUpgradePlan(ctx context.Context, height types.Height) (upgrade.Plan, bool, error) {
 	select {
 	case <-ctx.Done():
 		return upgrade.Plan{}, false, ctx.Err()
 	default:
 	}
-	heights := util.BytesPrefix(upgradePlanHeightPrefix)
-	heights.Start = upgradePlanHeightKey(height)
-	iterator := store.db.NewIterator(heights, nil)
-	defer iterator.Release()
-	if !iterator.Next() {
+	heights := prefixRange(upgradePlanHeightPrefix)
+	heights.lower = upgradePlanHeightKey(height)
+	iterator := newIter(store.db, heights)
+	defer iterator.Close()
+	if !iterator.First() {
 		return upgrade.Plan{}, false, iterator.Error()
 	}
 	return decodeUpgradePlan(iterator.Value())
 }
 
-func (store *LevelDBStore) upgradePlan(key []byte) (upgrade.Plan, bool, error) {
-	encoded, err := store.db.Get(key, nil)
+func (store *PebbleStore) upgradePlan(key []byte) (upgrade.Plan, bool, error) {
+	encoded, err := getValue(store.db, key)
 	if err != nil {
-		if errors.Is(err, leveldberrors.ErrNotFound) {
+		if errors.Is(err, pebble.ErrNotFound) {
 			return upgrade.Plan{}, false, nil
 		}
 		return upgrade.Plan{}, false, err
@@ -415,8 +405,8 @@ func (store *LevelDBStore) upgradePlan(key []byte) (upgrade.Plan, bool, error) {
 }
 
 func decodeUpgradePlan(encoded []byte) (upgrade.Plan, bool, error) {
-	var plan upgrade.Plan
-	if err := json.Unmarshal(encoded, &plan); err != nil {
+	plan, err := decodeUpgradePlanRecord(encoded)
+	if err != nil {
 		return upgrade.Plan{}, false, err
 	}
 	if err := upgrade.ValidatePlan(plan); err != nil {
@@ -425,23 +415,23 @@ func decodeUpgradePlan(encoded []byte) (upgrade.Plan, bool, error) {
 	return plan, true, nil
 }
 
-func (store *LevelDBStore) LatestState(ctx context.Context) (StateRecord, error) {
+func (store *PebbleStore) LatestState(ctx context.Context) (StateRecord, error) {
 	select {
 	case <-ctx.Done():
 		return StateRecord{}, ctx.Err()
 	default:
 	}
 
-	encoded, err := store.db.Get(stateLatestKey, nil)
+	encoded, err := getValue(store.db, stateLatestKey)
 	if err != nil {
-		if errors.Is(err, leveldberrors.ErrNotFound) {
+		if errors.Is(err, pebble.ErrNotFound) {
 			return StateRecord{}, ErrStateNotFound
 		}
 		return StateRecord{}, err
 	}
 
-	var state StateRecord
-	if err := json.Unmarshal(encoded, &state); err != nil {
+	state, err := decodeStateRecord(encoded)
+	if err != nil {
 		return StateRecord{}, err
 	}
 	if state.Height == 0 {
@@ -450,7 +440,7 @@ func (store *LevelDBStore) LatestState(ctx context.Context) (StateRecord, error)
 	return state, nil
 }
 
-func (store *LevelDBStore) StateByHeight(ctx context.Context, height types.Height) (StateRecord, error) {
+func (store *PebbleStore) StateByHeight(ctx context.Context, height types.Height) (StateRecord, error) {
 	select {
 	case <-ctx.Done():
 		return StateRecord{}, ctx.Err()
@@ -459,15 +449,15 @@ func (store *LevelDBStore) StateByHeight(ctx context.Context, height types.Heigh
 	if height == 0 {
 		return StateRecord{}, ErrInvalidStateRecord
 	}
-	encoded, err := store.db.Get(stateHeightKey(height), nil)
+	encoded, err := getValue(store.db, stateHeightKey(height))
 	if err != nil {
-		if errors.Is(err, leveldberrors.ErrNotFound) {
+		if errors.Is(err, pebble.ErrNotFound) {
 			return StateRecord{}, ErrStateNotFound
 		}
 		return StateRecord{}, err
 	}
-	var state StateRecord
-	if err := json.Unmarshal(encoded, &state); err != nil {
+	state, err := decodeStateRecord(encoded)
+	if err != nil {
 		return StateRecord{}, err
 	}
 	if state.Height != height {
@@ -476,7 +466,7 @@ func (store *LevelDBStore) StateByHeight(ctx context.Context, height types.Heigh
 	return state, nil
 }
 
-func (store *LevelDBStore) SaveStateRoot(ctx context.Context, record StateRootRecord) error {
+func (store *PebbleStore) SaveStateRoot(ctx context.Context, record StateRootRecord) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -485,22 +475,19 @@ func (store *LevelDBStore) SaveStateRoot(ctx context.Context, record StateRootRe
 	if record.Height == 0 || record.Namespace == "" {
 		return ErrInvalidStateRoot
 	}
-	encoded, err := json.Marshal(record)
-	if err != nil {
-		return err
-	}
+	encoded := encodeStateRootRecord(record)
 	return store.put(stateRootKey(record.Height, record.Namespace), encoded)
 }
 
-func (store *LevelDBStore) CommitBlockState(ctx context.Context, block BlockRecord, state StateRecord, roots []StateRootRecord) error {
+func (store *PebbleStore) CommitBlockState(ctx context.Context, block BlockRecord, state StateRecord, roots []StateRootRecord) error {
 	return store.commitBlockStateBatch(ctx, nil, block, state, roots)
 }
 
-func (store *LevelDBStore) CommitBlockStateWithWrites(ctx context.Context, writes []KVWrite, block BlockRecord, state StateRecord, roots []StateRootRecord) error {
+func (store *PebbleStore) CommitBlockStateWithWrites(ctx context.Context, writes []KVWrite, block BlockRecord, state StateRecord, roots []StateRootRecord) error {
 	return store.commitBlockStateBatch(ctx, writes, block, state, roots)
 }
 
-func (store *LevelDBStore) commitBlockStateBatch(ctx context.Context, writes []KVWrite, block BlockRecord, state StateRecord, roots []StateRootRecord) error {
+func (store *PebbleStore) commitBlockStateBatch(ctx context.Context, writes []KVWrite, block BlockRecord, state StateRecord, roots []StateRootRecord) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -527,26 +514,18 @@ func (store *LevelDBStore) commitBlockStateBatch(ctx context.Context, writes []K
 	}
 
 	block.StateRoots = append([]StateRootRecord(nil), roots...)
-	encodedBlock, err := json.Marshal(block)
-	if err != nil {
-		return err
-	}
+	encodedBlock := encodeBlockRecord(block)
 	index, err := store.nextBlockIndex(block.Block.Header.Height)
 	if err != nil {
 		return err
 	}
-	encodedIndex, err := json.Marshal(index)
-	if err != nil {
-		return err
-	}
-	encodedState, err := json.Marshal(state)
-	if err != nil {
-		return err
-	}
+	encodedIndex := encodeBlockIndex(index)
+	encodedState := encodeStateRecord(state)
 
 	store.writeMu.Lock()
 	defer store.writeMu.Unlock()
-	batch := new(leveldb.Batch)
+	batch := store.db.NewBatch()
+	defer batch.Close()
 	history := newHistoryBatch(store, batch, state.Height)
 	trees := newStateTrees(store.db)
 	for _, write := range writes {
@@ -558,30 +537,27 @@ func (store *LevelDBStore) commitBlockStateBatch(ctx context.Context, writes []K
 			return err
 		}
 		if write.Delete {
-			batch.Delete(key)
+			batch.Delete(key, nil)
 			continue
 		}
-		batch.Put(key, append([]byte(nil), write.Value...))
+		batch.Set(key, append([]byte(nil), write.Value...), nil)
 	}
 	if err := trees.persist(batch, true, state.Height); err != nil {
 		return err
 	}
-	batch.Put(blockHeightKey(block.Block.Header.Height), encodedBlock)
-	batch.Put(blockHashKey(block.Hash), blockHashValue(block.Block.Header.Height))
-	batch.Put(blockIndexKey, encodedIndex)
-	batch.Put(stateLatestKey, encodedState)
-	batch.Put(stateHeightKey(state.Height), encodedState)
+	batch.Set(blockHeightKey(block.Block.Header.Height), encodedBlock, nil)
+	batch.Set(blockHashKey(block.Hash), blockHashValue(block.Block.Header.Height), nil)
+	batch.Set(blockIndexKey, encodedIndex, nil)
+	batch.Set(stateLatestKey, encodedState, nil)
+	batch.Set(stateHeightKey(state.Height), encodedState, nil)
 	for _, root := range roots {
-		encodedRoot, err := json.Marshal(root)
-		if err != nil {
-			return err
-		}
-		batch.Put(stateRootKey(root.Height, root.Namespace), encodedRoot)
+		encodedRoot := encodeStateRootRecord(root)
+		batch.Set(stateRootKey(root.Height, root.Namespace), encodedRoot, nil)
 	}
 	return store.writeBatch(batch)
 }
 
-func (store *LevelDBStore) StateRoot(ctx context.Context, height types.Height, namespace string) (StateRootRecord, error) {
+func (store *PebbleStore) StateRoot(ctx context.Context, height types.Height, namespace string) (StateRootRecord, error) {
 	select {
 	case <-ctx.Done():
 		return StateRootRecord{}, ctx.Err()
@@ -591,16 +567,16 @@ func (store *LevelDBStore) StateRoot(ctx context.Context, height types.Height, n
 		return StateRootRecord{}, ErrInvalidStateRoot
 	}
 
-	encoded, err := store.db.Get(stateRootKey(height, namespace), nil)
+	encoded, err := getValue(store.db, stateRootKey(height, namespace))
 	if err != nil {
-		if errors.Is(err, leveldberrors.ErrNotFound) {
+		if errors.Is(err, pebble.ErrNotFound) {
 			return StateRootRecord{}, ErrStateRootNotFound
 		}
 		return StateRootRecord{}, err
 	}
 
-	var record StateRootRecord
-	if err := json.Unmarshal(encoded, &record); err != nil {
+	record, err := decodeStateRootRecord(encoded)
+	if err != nil {
 		return StateRootRecord{}, err
 	}
 	if record.Height != height || record.Namespace != namespace {
@@ -609,7 +585,7 @@ func (store *LevelDBStore) StateRoot(ctx context.Context, height types.Height, n
 	return record, nil
 }
 
-func (store *LevelDBStore) SaveFinalityProof(ctx context.Context, proof FinalityProofRecord) error {
+func (store *PebbleStore) SaveFinalityProof(ctx context.Context, proof FinalityProofRecord) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -626,17 +602,15 @@ func (store *LevelDBStore) SaveFinalityProof(ctx context.Context, proof Finality
 	if err := validateFinalityCommitChainRecord(proof); err != nil {
 		return err
 	}
-	encoded, err := json.Marshal(proof)
-	if err != nil {
-		return err
-	}
-	batch := new(leveldb.Batch)
-	batch.Put(finalityHeightKey(proof.Header.Height), encoded)
-	batch.Put(finalityLatestKey, encoded)
+	encoded := encodeFinalityProofRecord(proof)
+	batch := store.db.NewBatch()
+	defer batch.Close()
+	batch.Set(finalityHeightKey(proof.Header.Height), encoded, nil)
+	batch.Set(finalityLatestKey, encoded, nil)
 	return store.writeBatch(batch)
 }
 
-func (store *LevelDBStore) FinalityProof(ctx context.Context, height types.Height) (FinalityProofRecord, error) {
+func (store *PebbleStore) FinalityProof(ctx context.Context, height types.Height) (FinalityProofRecord, error) {
 	select {
 	case <-ctx.Done():
 		return FinalityProofRecord{}, ctx.Err()
@@ -648,7 +622,7 @@ func (store *LevelDBStore) FinalityProof(ctx context.Context, height types.Heigh
 	return store.getFinalityProof(finalityHeightKey(height), height)
 }
 
-func (store *LevelDBStore) LatestFinalityProof(ctx context.Context) (FinalityProofRecord, error) {
+func (store *PebbleStore) LatestFinalityProof(ctx context.Context) (FinalityProofRecord, error) {
 	select {
 	case <-ctx.Done():
 		return FinalityProofRecord{}, ctx.Err()
@@ -657,16 +631,16 @@ func (store *LevelDBStore) LatestFinalityProof(ctx context.Context) (FinalityPro
 	return store.getFinalityProof(finalityLatestKey, 0)
 }
 
-func (store *LevelDBStore) getFinalityProof(key []byte, expectedHeight types.Height) (FinalityProofRecord, error) {
-	encoded, err := store.db.Get(key, nil)
+func (store *PebbleStore) getFinalityProof(key []byte, expectedHeight types.Height) (FinalityProofRecord, error) {
+	encoded, err := getValue(store.db, key)
 	if err != nil {
-		if errors.Is(err, leveldberrors.ErrNotFound) {
+		if errors.Is(err, pebble.ErrNotFound) {
 			return FinalityProofRecord{}, ErrFinalityNotFound
 		}
 		return FinalityProofRecord{}, err
 	}
-	var proof FinalityProofRecord
-	if err := json.Unmarshal(encoded, &proof); err != nil {
+	proof, err := decodeFinalityProofRecord(encoded)
+	if err != nil {
 		return FinalityProofRecord{}, err
 	}
 	if proof.Header.Height == 0 ||
@@ -726,11 +700,11 @@ func validateFinalityCommitChainRecord(proof FinalityProofRecord) error {
 // Set, Delete and SetBatch write outside a block commit. Once the chain has a
 // committed state their writes take effect at the next committed height and are
 // versioned like a block's writes; before it they form the base state.
-func (store *LevelDBStore) Set(ctx context.Context, namespace string, key []byte, value []byte) error {
+func (store *PebbleStore) Set(ctx context.Context, namespace string, key []byte, value []byte) error {
 	return store.applyDirectWrites(ctx, []KVWrite{{Namespace: namespace, Key: key, Value: value}})
 }
 
-func (store *LevelDBStore) Get(ctx context.Context, namespace string, key []byte) ([]byte, error) {
+func (store *PebbleStore) Get(ctx context.Context, namespace string, key []byte) ([]byte, error) {
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -743,9 +717,9 @@ func (store *LevelDBStore) Get(ctx context.Context, namespace string, key []byte
 		return nil, ErrInvalidKey
 	}
 
-	value, err := store.db.Get(kvKey(namespace, key), nil)
+	value, err := getValue(store.db, kvKey(namespace, key))
 	if err != nil {
-		if errors.Is(err, leveldberrors.ErrNotFound) {
+		if errors.Is(err, pebble.ErrNotFound) {
 			return nil, ErrKeyNotFound
 		}
 		return nil, err
@@ -753,15 +727,15 @@ func (store *LevelDBStore) Get(ctx context.Context, namespace string, key []byte
 	return append([]byte(nil), value...), nil
 }
 
-func (store *LevelDBStore) Delete(ctx context.Context, namespace string, key []byte) error {
+func (store *PebbleStore) Delete(ctx context.Context, namespace string, key []byte) error {
 	return store.applyDirectWrites(ctx, []KVWrite{{Namespace: namespace, Key: key, Delete: true}})
 }
 
-func (store *LevelDBStore) SetBatch(ctx context.Context, writes []KVWrite) error {
+func (store *PebbleStore) SetBatch(ctx context.Context, writes []KVWrite) error {
 	return store.applyDirectWrites(ctx, writes)
 }
 
-func (store *LevelDBStore) ExportNamespace(ctx context.Context, namespace string) ([]KVPair, error) {
+func (store *PebbleStore) ExportNamespace(ctx context.Context, namespace string) ([]KVPair, error) {
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -771,11 +745,11 @@ func (store *LevelDBStore) ExportNamespace(ctx context.Context, namespace string
 		return nil, ErrInvalidNamespace
 	}
 	prefix := kvNamespacePrefix(namespace)
-	iterator := store.db.NewIterator(util.BytesPrefix(prefix), nil)
-	defer iterator.Release()
+	iterator := newIter(store.db, prefixRange(prefix))
+	defer iterator.Close()
 
 	pairs := make([]KVPair, 0)
-	for iterator.Next() {
+	for valid := iterator.First(); valid; valid = iterator.Next() {
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
@@ -795,7 +769,7 @@ func (store *LevelDBStore) ExportNamespace(ctx context.Context, namespace string
 	return pairs, nil
 }
 
-func (store *LevelDBStore) ExportPrefix(ctx context.Context, namespace string, keyPrefix []byte) ([]KVPair, error) {
+func (store *PebbleStore) ExportPrefix(ctx context.Context, namespace string, keyPrefix []byte) ([]KVPair, error) {
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -805,12 +779,12 @@ func (store *LevelDBStore) ExportPrefix(ctx context.Context, namespace string, k
 		return nil, ErrInvalidNamespace
 	}
 	prefix := append(kvNamespacePrefix(namespace), keyPrefix...)
-	iterator := store.db.NewIterator(util.BytesPrefix(prefix), nil)
-	defer iterator.Release()
+	iterator := newIter(store.db, prefixRange(prefix))
+	defer iterator.Close()
 
 	namespacePrefix := kvNamespacePrefix(namespace)
 	pairs := make([]KVPair, 0)
-	for iterator.Next() {
+	for valid := iterator.First(); valid; valid = iterator.Next() {
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
@@ -832,7 +806,7 @@ func (store *LevelDBStore) ExportPrefix(ctx context.Context, namespace string, k
 
 // ImportNamespace replaces namespace with pairs, which become its base state:
 // the namespace's versions are dropped with its old pairs.
-func (store *LevelDBStore) ImportNamespace(ctx context.Context, namespace string, pairs []KVPair) error {
+func (store *PebbleStore) ImportNamespace(ctx context.Context, namespace string, pairs []KVPair) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -843,7 +817,8 @@ func (store *LevelDBStore) ImportNamespace(ctx context.Context, namespace string
 	}
 	store.writeMu.Lock()
 	defer store.writeMu.Unlock()
-	batch := new(leveldb.Batch)
+	batch := store.db.NewBatch()
+	defer batch.Close()
 	if err := store.deleteNamespaceHistory(ctx, batch, namespace); err != nil {
 		return err
 	}
@@ -851,21 +826,21 @@ func (store *LevelDBStore) ImportNamespace(ctx context.Context, namespace string
 		return err
 	}
 	prefix := kvNamespacePrefix(namespace)
-	iterator := store.db.NewIterator(util.BytesPrefix(prefix), nil)
-	for iterator.Next() {
+	iterator := newIter(store.db, prefixRange(prefix))
+	for valid := iterator.First(); valid; valid = iterator.Next() {
 		select {
 		case <-ctx.Done():
-			iterator.Release()
+			iterator.Close()
 			return ctx.Err()
 		default:
 		}
-		batch.Delete(append([]byte(nil), iterator.Key()...))
+		batch.Delete(append([]byte(nil), iterator.Key()...), nil)
 	}
 	if err := iterator.Error(); err != nil {
-		iterator.Release()
+		iterator.Close()
 		return err
 	}
-	iterator.Release()
+	iterator.Close()
 	for _, pair := range pairs {
 		if pair.Namespace != "" && pair.Namespace != namespace {
 			return ErrInvalidNamespace
@@ -873,12 +848,12 @@ func (store *LevelDBStore) ImportNamespace(ctx context.Context, namespace string
 		if len(pair.Key) == 0 {
 			return ErrInvalidKey
 		}
-		batch.Put(kvKey(namespace, pair.Key), append([]byte(nil), pair.Value...))
+		batch.Set(kvKey(namespace, pair.Key), append([]byte(nil), pair.Value...), nil)
 	}
 	return store.writeBatch(batch)
 }
 
-func (store *LevelDBStore) RecoverIndexes(ctx context.Context) (RecoverResult, error) {
+func (store *PebbleStore) RecoverIndexes(ctx context.Context) (RecoverResult, error) {
 	select {
 	case <-ctx.Done():
 		return RecoverResult{}, ctx.Err()
@@ -893,15 +868,13 @@ func (store *LevelDBStore) RecoverIndexes(ctx context.Context) (RecoverResult, e
 	if err != nil {
 		return RecoverResult{}, err
 	}
-	batch := new(leveldb.Batch)
+	batch := store.db.NewBatch()
+	defer batch.Close()
 	if blockIndex.TotalBlocks == 0 {
-		batch.Delete(blockIndexKey)
+		batch.Delete(blockIndexKey, nil)
 	} else {
-		encoded, err := json.Marshal(blockIndex)
-		if err != nil {
-			return RecoverResult{}, err
-		}
-		batch.Put(blockIndexKey, encoded)
+		encoded := encodeBlockIndex(blockIndex)
+		batch.Set(blockIndexKey, encoded, nil)
 		result.RecoveredIndexes++
 	}
 	if err := store.writeBatch(batch); err != nil {
@@ -914,30 +887,34 @@ func (store *LevelDBStore) RecoverIndexes(ctx context.Context) (RecoverResult, e
 	return result, nil
 }
 
-func (store *LevelDBStore) Compact(ctx context.Context) error {
+func (store *PebbleStore) Compact(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
 	}
-	return store.db.CompactRange(util.Range{})
+	return store.compactAll(ctx)
 }
 
-func (store *LevelDBStore) Close() error {
-	return store.db.Close()
+// Close closes the database. Closing a closed store does nothing: pebble panics on a second
+// close, and the runtime and the commands that open a store may both close it.
+func (store *PebbleStore) Close() error {
+	var err error
+	store.closeOnce.Do(func() { err = store.db.Close() })
+	return err
 }
 
-func (store *LevelDBStore) getBlock(key []byte) (BlockRecord, error) {
-	encoded, err := store.db.Get(key, nil)
+func (store *PebbleStore) getBlock(key []byte) (BlockRecord, error) {
+	encoded, err := getValue(store.db, key)
 	if err != nil {
-		if errors.Is(err, leveldberrors.ErrNotFound) {
+		if errors.Is(err, pebble.ErrNotFound) {
 			return BlockRecord{}, ErrBlockNotFound
 		}
 		return BlockRecord{}, err
 	}
 
-	var record BlockRecord
-	if err := json.Unmarshal(encoded, &record); err != nil {
+	record, err := decodeBlockRecord(encoded)
+	if err != nil {
 		return BlockRecord{}, err
 	}
 	if record.Block.Header.Height == 0 || record.Hash == (types.Hash{}) {
@@ -948,24 +925,24 @@ func (store *LevelDBStore) getBlock(key []byte) (BlockRecord, error) {
 
 // pruneStateRootsBelow drops the state roots of the heights below retainFrom; root keys start
 // with their big-endian height, so only the pruned keys are visited.
-func (store *LevelDBStore) pruneStateRootsBelow(ctx context.Context, batch *leveldb.Batch, retainFrom types.Height) (uint64, error) {
+func (store *PebbleStore) pruneStateRootsBelow(ctx context.Context, batch *pebble.Batch, retainFrom types.Height) (uint64, error) {
 	return store.pruneHeightKeysBelow(ctx, batch, stateRootPrefix, retainFrom)
 }
 
 // pruneStatesBelow drops the state records of the heights below retainFrom.
-func (store *LevelDBStore) pruneStatesBelow(ctx context.Context, batch *leveldb.Batch, retainFrom types.Height) (uint64, error) {
+func (store *PebbleStore) pruneStatesBelow(ctx context.Context, batch *pebble.Batch, retainFrom types.Height) (uint64, error) {
 	return store.pruneHeightKeysBelow(ctx, batch, stateHeightPrefix, retainFrom)
 }
 
 // pruneHeightKeysBelow drops the keys under prefix whose big-endian height that follows the prefix
 // is below retainFrom.
-func (store *LevelDBStore) pruneHeightKeysBelow(ctx context.Context, batch *leveldb.Batch, prefix []byte, retainFrom types.Height) (uint64, error) {
+func (store *PebbleStore) pruneHeightKeysBelow(ctx context.Context, batch *pebble.Batch, prefix []byte, retainFrom types.Height) (uint64, error) {
 	limit := binary.BigEndian.AppendUint64(append([]byte(nil), prefix...), uint64(retainFrom))
-	iterator := store.db.NewIterator(&util.Range{Start: prefix, Limit: limit}, nil)
-	defer iterator.Release()
+	iterator := newIter(store.db, keyRange{lower: prefix, upper: limit})
+	defer iterator.Close()
 
 	var pruned uint64
-	for iterator.Next() {
+	for valid := iterator.First(); valid; valid = iterator.Next() {
 		select {
 		case <-ctx.Done():
 			return 0, ctx.Err()
@@ -974,7 +951,7 @@ func (store *LevelDBStore) pruneHeightKeysBelow(ctx context.Context, batch *leve
 		if len(iterator.Key()) < len(prefix)+8 {
 			continue
 		}
-		batch.Delete(append([]byte(nil), iterator.Key()...))
+		batch.Delete(append([]byte(nil), iterator.Key()...), nil)
 		pruned++
 	}
 	if err := iterator.Error(); err != nil {
@@ -986,7 +963,7 @@ func (store *LevelDBStore) pruneHeightKeysBelow(ctx context.Context, batch *leve
 // indexAfterPrune returns the block index once the blocks below retainFrom, pruned of them, are
 // gone: the earliest block is the first one from retainFrom on, found by visiting only the heights
 // up to it.
-func (store *LevelDBStore) indexAfterPrune(ctx context.Context, index BlockIndex, retainFrom types.Height, pruned uint64) (BlockIndex, error) {
+func (store *PebbleStore) indexAfterPrune(ctx context.Context, index BlockIndex, retainFrom types.Height, pruned uint64) (BlockIndex, error) {
 	if pruned >= index.TotalBlocks {
 		return BlockIndex{}, nil
 	}
@@ -997,7 +974,7 @@ func (store *LevelDBStore) indexAfterPrune(ctx context.Context, index BlockIndex
 			return BlockIndex{}, ctx.Err()
 		default:
 		}
-		found, err := store.db.Has(blockHeightKey(height), nil)
+		found, err := hasKey(store.db, blockHeightKey(height))
 		if err != nil {
 			return BlockIndex{}, err
 		}
@@ -1009,17 +986,17 @@ func (store *LevelDBStore) indexAfterPrune(ctx context.Context, index BlockIndex
 	return BlockIndex{}, nil
 }
 
-func (store *LevelDBStore) nextBlockIndex(height types.Height) (BlockIndex, error) {
-	encoded, err := store.db.Get(blockIndexKey, nil)
+func (store *PebbleStore) nextBlockIndex(height types.Height) (BlockIndex, error) {
+	encoded, err := getValue(store.db, blockIndexKey)
 	if err != nil {
-		if errors.Is(err, leveldberrors.ErrNotFound) {
+		if errors.Is(err, pebble.ErrNotFound) {
 			return BlockIndex{EarliestHeight: height, LatestHeight: height, TotalBlocks: 1}, nil
 		}
 		return BlockIndex{}, err
 	}
 
-	var index BlockIndex
-	if err := json.Unmarshal(encoded, &index); err != nil {
+	index, err := decodeBlockIndex(encoded)
+	if err != nil {
 		return BlockIndex{}, err
 	}
 	if index.EarliestHeight == 0 || height < index.EarliestHeight {
@@ -1028,7 +1005,7 @@ func (store *LevelDBStore) nextBlockIndex(height types.Height) (BlockIndex, erro
 	if height > index.LatestHeight {
 		index.LatestHeight = height
 	}
-	if _, err := store.db.Get(blockHeightKey(height), nil); errors.Is(err, leveldberrors.ErrNotFound) {
+	if _, err := getValue(store.db, blockHeightKey(height)); errors.Is(err, pebble.ErrNotFound) {
 		index.TotalBlocks++
 	} else if err != nil {
 		return BlockIndex{}, err
@@ -1036,9 +1013,9 @@ func (store *LevelDBStore) nextBlockIndex(height types.Height) (BlockIndex, erro
 	return index, nil
 }
 
-func (store *LevelDBStore) rebuildBlockIndex(ctx context.Context) (BlockIndex, error) {
-	iterator := store.db.NewIterator(util.BytesPrefix(blockHeightPrefix), nil)
-	defer iterator.Release()
+func (store *PebbleStore) rebuildBlockIndex(ctx context.Context) (BlockIndex, error) {
+	iterator := newIter(store.db, prefixRange(blockHeightPrefix))
+	defer iterator.Close()
 	var index BlockIndex
 	for ok := iterator.First(); ok; ok = iterator.Next() {
 		select {
@@ -1046,8 +1023,8 @@ func (store *LevelDBStore) rebuildBlockIndex(ctx context.Context) (BlockIndex, e
 			return BlockIndex{}, ctx.Err()
 		default:
 		}
-		var record BlockRecord
-		if err := json.Unmarshal(iterator.Value(), &record); err != nil {
+		record, err := decodeBlockRecord(iterator.Value())
+		if err != nil {
 			return BlockIndex{}, err
 		}
 		height := record.Block.Header.Height

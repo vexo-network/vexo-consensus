@@ -25,7 +25,7 @@ Vexo 节点主目录是一个包含节点启动所需的所有内容的目录：
   validator.key.json      # validator consensus signer, validator nodes only
   node.key.json           # P2P identity signer, validators and archives
   validator.vrf.key.json  # VRF key for committee randomness when enabled
-  data/                   # LevelDB chain/app/evidence/snapshot state
+  data/                   # Pebble chain/app/evidence/snapshot state
 ```
 重要的规则很简单：初始化一次，编辑配置文件，然后启动。不要将网络行为隐藏在 shell 标志内。
 
@@ -221,7 +221,7 @@ vexod start --home .vexo-archive-1
 
 `network_config.json` P2P 设置包括 `auth_replay_path`、`require_auth_replay_store` 和 `dial_timeout`。生成的默认值将随机数重播证据写入 `data/p2p_auth_replay.jsonl` 并使用 `10s` 出站拨号超时。对于私有环回测试，重放存储基本上是无害的簿记；对于公共身份验证的 P2P，这是一项安全要求，因为它可以防止重新启动后重播捕获的签名握手随机数。 `dial_timeout` 应足够长以支持 TLS、签名握手验证和跨区域延迟；将其设置得太低会使健康的对等点看起来不稳定，并且会在重新启动后降低活跃度。
 
-`network_config.json` 还拥有启动状态同步。这对于存档节点、替换验证器或恢复到干净机器上的节点非常有用。当 `state_sync.enabled` 为 true 时，`vexod start` 从 `state_sync.snapshot_urls` 下载第一个有效快照，验证链 ID、校验和、状态根和 KV 命名空间，将其恢复到 LevelDB，重建索引，然后启动节点。如果本地状态已满足 `state_sync.min_height` 并且 `state_sync.trust_local_higher` 为 true，则启动会记录 `state_sync_skipped` 并保留本地存储。
+`network_config.json` 还拥有启动状态同步。这对于存档节点、替换验证器或恢复到干净机器上的节点非常有用。当 `state_sync.enabled` 为 true 时，`vexod start` 从 `state_sync.snapshot_urls` 下载第一个有效快照，验证链 ID、校验和、状态根和 KV 命名空间，将其恢复到 Pebble，重建索引，然后启动节点。如果本地状态已满足 `state_sync.min_height` 并且 `state_sync.trust_local_higher` 为 true，则启动会记录 `state_sync_skipped` 并保留本地存储。
 
 示例 `state_sync` 块：
 ```json
@@ -515,7 +515,7 @@ vexod network init \
 - 共享的 `genesis.json`
 - 其他验证器的 `network_config.json` 对等条目
 
-`vexod network up` 和 `make network-e2e` 在等待所有验证器启动、提交烟雾交易并观察高度增长时使用进程级超时。默认命令超时故意长于共识间隔，因为它涵盖了进程启动、LevelDB 打开、P2P 签名握手、TLS/身份验证检查、事务准入和最终确定。如果您大幅降低共识超时，请保持网络超时足够大以诊断启动错误，而不是过早终止该工具。
+`vexod network up` 和 `make network-e2e` 在等待所有验证器启动、提交烟雾交易并观察高度增长时使用进程级超时。默认命令超时故意长于共识间隔，因为它涵盖了进程启动、Pebble 打开、P2P 签名握手、TLS/身份验证检查、事务准入和最终确定。如果您大幅降低共识超时，请保持网络超时足够大以诊断启动错误，而不是过早终止该工具。
 
 对于容器化或多主机网络，将拓扑值放入 JSON 文件中：
 ```json

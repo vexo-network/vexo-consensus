@@ -9,7 +9,7 @@ import (
 )
 
 func TestStagedStoreSetBatchOverlaysWrites(t *testing.T) {
-	base, err := store.OpenLevelDB(t.TempDir())
+	base, err := store.OpenPebble(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
