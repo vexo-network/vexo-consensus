@@ -512,14 +512,16 @@ func (store *PebbleStore) SaveStateRoot(ctx context.Context, record StateRootRec
 }
 
 func (store *PebbleStore) CommitBlockState(ctx context.Context, block BlockRecord, state StateRecord, roots []StateRootRecord) error {
-	return store.commitBlockStateBatch(ctx, nil, block, state, roots)
+	return store.commitBlockStateBatch(ctx, nil, block, state, roots, nil)
 }
 
-func (store *PebbleStore) CommitBlockStateWithWrites(ctx context.Context, writes []KVWrite, block BlockRecord, state StateRecord, roots []StateRootRecord) error {
-	return store.commitBlockStateBatch(ctx, writes, block, state, roots)
+// CommitBlockStateWithWrites commits a block in one batch; see AppBlockCommitStore. The finality
+// proofs are stored as SaveFinalityProof stores them, in order, so the last is the latest.
+func (store *PebbleStore) CommitBlockStateWithWrites(ctx context.Context, writes []KVWrite, block BlockRecord, state StateRecord, roots []StateRootRecord, proofs []FinalityProofRecord) error {
+	return store.commitBlockStateBatch(ctx, writes, block, state, roots, proofs)
 }
 
-func (store *PebbleStore) commitBlockStateBatch(ctx context.Context, writes []KVWrite, block BlockRecord, state StateRecord, roots []StateRootRecord) error {
+func (store *PebbleStore) commitBlockStateBatch(ctx context.Context, writes []KVWrite, block BlockRecord, state StateRecord, roots []StateRootRecord, proofs []FinalityProofRecord) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -542,6 +544,11 @@ func (store *PebbleStore) commitBlockStateBatch(ctx context.Context, writes []KV
 		}
 		if len(write.Key) == 0 {
 			return ErrInvalidKey
+		}
+	}
+	for _, proof := range proofs {
+		if err := ValidateFinalityProofRecord(proof); err != nil {
+			return err
 		}
 	}
 
@@ -590,6 +597,9 @@ func (store *PebbleStore) commitBlockStateBatch(ctx context.Context, writes []KV
 		encodedRoot := encodeStateRootRecord(root)
 		batch.Set(stateRootKey(root.Height, root.Namespace), encodedRoot, nil)
 	}
+	for _, proof := range proofs {
+		setFinalityProof(batch, proof)
+	}
 	return store.writeBatch(batch)
 }
 
@@ -627,6 +637,17 @@ func (store *PebbleStore) SaveFinalityProof(ctx context.Context, proof FinalityP
 		return ctx.Err()
 	default:
 	}
+	if err := ValidateFinalityProofRecord(proof); err != nil {
+		return err
+	}
+	batch := store.db.NewBatch()
+	defer batch.Close()
+	setFinalityProof(batch, proof)
+	return store.writeBatch(batch)
+}
+
+// validateFinalityProofRecord refuses a proof that does not prove its own header.
+func ValidateFinalityProofRecord(proof FinalityProofRecord) error {
 	if proof.Header.Height == 0 ||
 		proof.QuorumCert.Height == 0 ||
 		proof.Header.Height != proof.QuorumCert.Height ||
@@ -635,15 +656,14 @@ func (store *PebbleStore) SaveFinalityProof(ctx context.Context, proof FinalityP
 		!finalityRecordNamesItsHeader(proof) {
 		return ErrInvalidFinality
 	}
-	if err := validateFinalityCommitChainRecord(proof); err != nil {
-		return err
-	}
+	return validateFinalityCommitChainRecord(proof)
+}
+
+// setFinalityProof stores proof under its height and as the latest proof.
+func setFinalityProof(batch *pebble.Batch, proof FinalityProofRecord) {
 	encoded := encodeFinalityProofRecord(proof)
-	batch := store.db.NewBatch()
-	defer batch.Close()
 	batch.Set(finalityHeightKey(proof.Header.Height), encoded, nil)
 	batch.Set(finalityLatestKey, encoded, nil)
-	return store.writeBatch(batch)
 }
 
 func (store *PebbleStore) FinalityProof(ctx context.Context, height types.Height) (FinalityProofRecord, error) {

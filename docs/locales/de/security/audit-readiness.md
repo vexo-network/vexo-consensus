@@ -72,6 +72,10 @@ Audit-Unterlagen müssen neben BLS auch VRF adapter audit evidence enthalten. Pi
 
 Jedes angenommene Tx- oder Batch-Ereignis ist dauerhaft gespeichert, bevor seine Einreichung zurückkehrt. Datensätze sind `uvarint(length) | op | payload | CRC-32C`; gleichzeitige Aufnahmen teilen sich ein fsync (Group Commit), und der Knoten wartet darauf, ohne die Aufnahmesperre zu halten. Das Replay schneidet einen abgerissenen oder beschädigten letzten Datensatz ab und lehnt ein vor seinem Ende beschädigtes Log ab (`ErrWALCorrupt`). Nach einem I/O-Fehler stoppen Anhänge, bis das Log aus dem Pool neu geschrieben ist. Das Konsens-WAL nutzt dasselbe Framing (4-Byte-Länge big-endian, Payload, 4-Byte-CRC-32C): Ein abgerissenes Ende wird abgeschnitten, Beschädigung in der Mitte abgelehnt.
 
+## Group-Records im Consensus WAL und Dauerhaftigkeit der Mempool-Entfernung
+
+Ein Vote und der Safety State, in den er die Maschine versetzt, bilden einen Group-Record, der mit einem fsync geschrieben und bei der Wiederherstellung ganz oder gar nicht übernommen wird. Ein Proposal-Record kostet keinen eigenen fsync und wird mit dem Vote des Proposers geschrieben, bevor das Proposal den Node verlässt. Der Mempool-Entfernungs-Record eines committeten Blocks ist durable, bevor der nächste Block committet wird; ein Neustart wiederholt die Entfernung für den zuletzt committeten Block.
+
 <!-- vexo-docs:technical-parity -->
 ## Anhang zur technischen Parität
 

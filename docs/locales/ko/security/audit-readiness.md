@@ -81,6 +81,10 @@
 
 수락된 모든 tx 또는 batch 이벤트는 제출이 반환되기 전에 내구성을 갖습니다. 레코드는 `uvarint(length) | op | payload | CRC-32C`이고, 동시에 들어온 admission은 하나의 fsync를 공유하며(group commit), 노드는 admission 잠금을 잡지 않은 채 그 fsync를 기다립니다. replay는 찢어지거나 손상된 마지막 레코드를 잘라내고, 끝 이전에서 손상된 로그는 거부합니다(`ErrWALCorrupt`). I/O 실패가 나면 로그를 pool에서 다시 쓸 때까지 append를 멈춥니다. consensus WAL도 같은 framing(4바이트 big-endian 길이, payload, 4바이트 CRC-32C)을 쓰며, 찢어진 끝은 잘라내고 중간 손상은 거부합니다.
 
+## Consensus WAL group record와 mempool 제거의 내구성
+
+vote와 그 vote가 machine을 옮기는 safety state는 하나의 group record로, fsync 한 번에 쓰이고 복구 때 통째로 살거나 통째로 버려집니다. proposal record는 자체 fsync가 없고 proposer의 vote와 함께, proposal이 node를 떠나기 전에 쓰입니다. commit된 block의 mempool 제거 record는 다음 block이 commit되기 전에 durable해지며, 재시작은 마지막으로 commit된 block의 제거를 다시 합니다.
+
 <!-- vexo-docs:technical-parity -->
 ## 기술 동등성 부록
 

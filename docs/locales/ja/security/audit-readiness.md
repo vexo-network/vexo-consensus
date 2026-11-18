@@ -75,6 +75,10 @@
 
 受け入れたすべての tx または batch イベントは、送信が返る前に永続化されます。レコードは `uvarint(length) | op | payload | CRC-32C` で、同時に来た admission は一つの fsync を共有し(group commit)、ノードは admission ロックを保持せずにそれを待ちます。replay は途切れた、または破損した最後のレコードを切り詰め、終端より前で壊れたログは拒否します(`ErrWALCorrupt`)。I/O 失敗が起きると、ログを pool から書き直すまで append を止めます。consensus WAL も同じ framing(4 バイト big-endian の長さ、payload、4 バイトの CRC-32C)を使い、途切れた末尾は切り詰め、途中の破損は拒否します。
 
+## Consensus WAL の group record と mempool 除去の耐久性
+
+vote と、その vote が machine を移す safety state は一つの group record として fsync 一回で書かれ、復旧時には丸ごと残るか丸ごと捨てられます。proposal record は自前の fsync を持たず、proposer の vote と一緒に、proposal が node を出る前に書かれます。commit された block の mempool 除去 record は次の block が commit される前に durable になり、再起動は最後に commit された block の除去をやり直します。
+
 <!-- vexo-docs:technical-parity -->
 ## 技術的同等性付録
 

@@ -75,7 +75,7 @@ func TestStoreStateTreeFollowsEveryWrite(t *testing.T) {
 			predicted[namespace] = root
 		}
 		block := BlockRecord{Block: types.Block{Header: types.Header{Height: height}}, Hash: types.Hash{byte(height)}}
-		if err := storage.CommitBlockStateWithWrites(ctx, batch, block, StateRecord{Height: height}, nil); err != nil {
+		if err := storage.CommitBlockStateWithWrites(ctx, batch, block, StateRecord{Height: height}, nil, nil); err != nil {
 			t.Fatal(err)
 		}
 		for namespace, root := range predicted {
@@ -175,7 +175,7 @@ func BenchmarkCommitIntoALargeNamespace(b *testing.B) {
 				}
 				block := BlockRecord{Block: types.Block{Header: types.Header{Height: height}}, Hash: types.Hash{1}}
 				roots := []StateRootRecord{{Height: height, Namespace: "bank", Root: root}}
-				if err := storage.CommitBlockStateWithWrites(ctx, writes, block, StateRecord{Height: height}, roots); err != nil {
+				if err := storage.CommitBlockStateWithWrites(ctx, writes, block, StateRecord{Height: height}, roots, nil); err != nil {
 					b.Fatal(err)
 				}
 			}
@@ -218,7 +218,7 @@ func TestStoreProvesKeysAtPastHeightsFromTreeVersions(t *testing.T) {
 			t.Fatal(err)
 		}
 		block := BlockRecord{Block: types.Block{Header: types.Header{Height: height}}, Hash: types.Hash{byte(height)}}
-		if err := storage.CommitBlockStateWithWrites(ctx, writes, block, StateRecord{Height: height}, []StateRootRecord{{Height: height, Namespace: "bank", Root: root}}); err != nil {
+		if err := storage.CommitBlockStateWithWrites(ctx, writes, block, StateRecord{Height: height}, []StateRootRecord{{Height: height, Namespace: "bank", Root: root}}, nil); err != nil {
 			t.Fatal(err)
 		}
 		roots[height] = root
@@ -297,7 +297,7 @@ func TestExportRangeAtPagesThroughAPastState(t *testing.T) {
 			writes = append(writes, KVWrite{Namespace: "bank", Key: []byte("b"), Delete: true})
 		}
 		block := BlockRecord{Block: types.Block{Header: types.Header{Height: height}}, Hash: types.Hash{byte(height)}}
-		if err := storage.CommitBlockStateWithWrites(ctx, writes, block, StateRecord{Height: height}, nil); err != nil {
+		if err := storage.CommitBlockStateWithWrites(ctx, writes, block, StateRecord{Height: height}, nil, nil); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -420,7 +420,7 @@ func TestPruningInStepsMatchesOnePrune(t *testing.T) {
 				t.Fatal(err)
 			}
 			block := BlockRecord{Block: types.Block{Header: types.Header{Height: height}}, Hash: types.Hash{byte(height)}}
-			if err := storage.CommitBlockStateWithWrites(ctx, writes, block, StateRecord{Height: height}, []StateRootRecord{{Height: height, Namespace: "bank", Root: root}}); err != nil {
+			if err := storage.CommitBlockStateWithWrites(ctx, writes, block, StateRecord{Height: height}, []StateRootRecord{{Height: height, Namespace: "bank", Root: root}}, nil); err != nil {
 				t.Fatal(err)
 			}
 		}

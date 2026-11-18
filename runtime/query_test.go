@@ -143,6 +143,7 @@ func commitQueryProofState(t *testing.T, storage *store.PebbleStore, height type
 		store.BlockRecord{Block: types.Block{Header: types.Header{ChainID: "vexo-test", Height: height}}, Hash: types.Hash{byte(height)}, AppHash: types.Hash{byte(height)}},
 		store.StateRecord{Height: height, AppHash: types.Hash{byte(height)}, LastBlockHash: types.Hash{byte(height)}},
 		[]store.StateRootRecord{{Height: height, Namespace: "bank", Root: root}},
+		nil,
 	); err != nil {
 		t.Fatal(err)
 	}

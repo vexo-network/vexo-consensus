@@ -109,6 +109,10 @@ state history प्रति key संस्करणों का undo log �
 
 commit mempool WAL को तभी compact करता है जब उसमें कम से कम 4 MiB हो और पिछले compaction या खोलने के बाद के आकार का दोगुना हो। इसलिए जोड़ा गया हर byte औसतन लगभग एक बार ही दोबारा लिखा जाता है, और restart जिस log को replay करता है वह live सामग्री के दोगुने या 4 MiB के भीतर रहता है। स्पष्ट compaction (`Node.Compact`, या start जो application द्वारा अस्वीकृत replay tx हटाता है) हमेशा उसे दोबारा लिखता है। `InitChain` सभी module की genesis state एक batch में लिखता है, इसलिए कई खातों वाला genesis एक durable write में होता है और विफल genesis store में कुछ नहीं छोड़ता।
 
+## Commit batch में finality proof और mempool से विलंबित हटाना
+
+Node का commit पथ block के QC द्वारा पूर्ण की गई finality proofs को उसी block/state/app-write batch में लिखता है (`CommitBlockStateWithWrites` उन्हें अंतिम argument के रूप में लेता है)। इसलिए एक commit में हर proof के लिए एक और durable write के बजाय केवल एक write लगता है। जिस proof को store अस्वीकार करेगा वह batch से बाहर रहता है और commit के बाद का चरण उसे सहेजते हुए विफलता की रिपोर्ट करता है। Commit अपने transactions को pool से हटाता है और हटाने का record sync की प्रतीक्षा किए बिना queue में डालता है। अगला commit अपना block execute करने से पहले उस record के durable होने की प्रतीक्षा करता है, क्योंकि restart केवल अंतिम committed block का हटाना दोहराता है। आमतौर पर यह record बाद के admission के sync में साथ लिख जाता है।
+
 <!-- vexo-docs:technical-parity -->
 ## तकनीकी समानता परिशिष्ट
 

@@ -109,6 +109,10 @@ Riwayat state adalah undo log versi per key. Ketika sebuah key berubah pada suat
 
 Commit hanya memadatkan WAL mempool bila isinya paling sedikit 4 MiB dan dua kali isinya setelah kompaksi atau pembukaan terakhir. Jadi setiap byte yang ditambahkan rata-rata ditulis ulang sekitar sekali, dan log yang diputar ulang saat restart tetap dalam dua kali isi hidup atau 4 MiB. Kompaksi eksplisit (`Node.Compact`, atau start yang membuang transaksi replay yang ditolak aplikasi) selalu menulis ulang log. `InitChain` menulis state genesis semua modul sebagai satu batch, sehingga genesis dengan banyak akun cukup satu tulisan durable dan genesis yang gagal tidak meninggalkan apa pun di store.
 
+## Finality proof dalam batch commit dan penghapusan mempool yang ditunda
+
+Jalur commit node menulis finality proof yang dilengkapi QC blok ke batch block/state/app-write yang sama (`CommitBlockStateWithWrites` menerimanya sebagai argumen terakhir). Dengan begitu satu commit hanya butuh satu durable write, bukan satu tambahan per proof. Proof yang akan ditolak store dikeluarkan dari batch dan disimpan oleh langkah setelah commit, yang melaporkan kegagalannya. Commit menghapus transaksinya dari pool dan mengantrekan record penghapusan tanpa menunggu sync-nya. Commit berikutnya menunggu record itu durable sebelum mengeksekusi bloknya, karena restart hanya mengulang penghapusan untuk blok terakhir yang di-commit. Record itu biasanya ikut dalam sync admission berikutnya.
+
 <!-- vexo-docs:technical-parity -->
 ## Lampiran Paritas Teknis
 

@@ -109,6 +109,10 @@ L'historique d'état est un undo log de versions par clé. Quand une clé change
 
 Un commit ne compacte le WAL du mempool que lorsqu'il contient au moins 4 MiB et le double de ce qu'il contenait après le dernier compactage ou la dernière ouverture. Chaque octet ajouté n'est ainsi réécrit qu'environ une fois en moyenne, et le log qu'un redémarrage rejoue reste sous le double du contenu vivant ou 4 MiB. Un compactage explicite (`Node.Compact`, ou un démarrage qui écarte des transactions rejouées que l'application refuse) le réécrit toujours. `InitChain` écrit l'état de genesis de tous les modules en un seul batch : une genesis de nombreux comptes coûte une écriture durable, et une genesis qui échoue ne laisse rien dans le store.
 
+## Finality proofs dans le batch du commit et retrait différé du mempool
+
+Le chemin de commit du nœud écrit les finality proofs que complète le QC du bloc dans le même batch block/state/app-write (`CommitBlockStateWithWrites` les reçoit en dernier argument). Un commit coûte ainsi une seule écriture durable au lieu d'une de plus par proof. Une proof que le store refuserait est laissée hors du batch et enregistrée par l'étape qui suit le commit, qui signale l'échec. Un commit retire ses transactions du pool et met en file l'enregistrement du retrait sans attendre son sync. Le commit suivant attend que cet enregistrement soit durable avant d'exécuter son bloc, car un redémarrage ne refait le retrait que pour le dernier bloc commité. L'enregistrement partage en général le sync d'une admission ultérieure.
+
 <!-- vexo-docs:technical-parity -->
 ## Annexe de parité technique
 

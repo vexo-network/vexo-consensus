@@ -109,6 +109,10 @@ Die Zustandshistorie ist ein Undo-Log von Versionen je Schlüssel. Ändert sich 
 
 Ein Commit kompaktiert das Mempool-WAL nur, wenn es mindestens 4 MiB und das Doppelte dessen hält, was es nach der letzten Kompaktierung oder dem Öffnen hielt. So wird jedes angehängte Byte im Mittel etwa einmal neu geschrieben, und das Log, das ein Neustart wiederholt, bleibt innerhalb des doppelten Live-Inhalts oder 4 MiB. Eine ausdrückliche Kompaktierung (`Node.Compact` oder ein Start, der wiederholte Transaktionen verwirft, die die Anwendung ablehnt) schreibt es immer neu. `InitChain` schreibt den Genesis-Zustand aller Module als einen Batch, sodass eine Genesis mit vielen Konten einen dauerhaften Schreibvorgang kostet und eine fehlgeschlagene Genesis nichts im Store hinterlässt.
 
+## Finality Proofs im Commit-Batch und verzögertes Entfernen aus dem Mempool
+
+Der Commit-Pfad des Nodes schreibt die Finality Proofs, die das QC des Blocks vervollständigt, in denselben block/state/app-write-Batch (`CommitBlockStateWithWrites` erhält sie als letztes Argument). Ein Commit kostet so einen durable Write statt eines weiteren pro Proof. Ein Proof, den der Store ablehnen würde, bleibt außerhalb des Batches und wird vom Schritt nach dem Commit gespeichert, der den Fehler meldet. Ein Commit entfernt seine Transaktionen aus dem Pool und reiht den Entfernungs-Record ein, ohne auf dessen Sync zu warten. Der nächste Commit wartet, bis dieser Record durable ist, bevor er seinen Block ausführt, denn ein Neustart wiederholt die Entfernung nur für den zuletzt committeten Block. Meist teilt sich der Record den Sync einer späteren Admission.
+
 <!-- vexo-docs:technical-parity -->
 ## Anhang zur technischen Parität
 

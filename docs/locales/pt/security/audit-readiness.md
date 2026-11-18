@@ -72,6 +72,10 @@ A entrega de auditoria deve incluir VRF adapter audit evidence além de BLS. Fix
 
 Todo evento de tx ou batch aceito é durável antes de o envio retornar. Os registros são `uvarint(length) | op | payload | CRC-32C`; admissões concorrentes compartilham um fsync (group commit) e o nó o aguarda sem segurar o lock de admissão. O replay trunca um último registro rasgado ou corrompido e recusa um log danificado antes do fim (`ErrWALCorrupt`). Após uma falha de I/O, as gravações param até o log ser reescrito a partir do pool. O WAL de consenso usa o mesmo enquadramento (comprimento big-endian de 4 bytes, payload, CRC-32C de 4 bytes): trunca um final rasgado e recusa corrupção no meio.
 
+## Registros de grupo do consensus WAL e durabilidade da remoção do mempool
+
+Um voto e o safety state para o qual ele leva a máquina formam um registro de grupo, escrito com um único fsync e recuperado inteiro ou descartado inteiro. Um registro de proposta não tem fsync próprio e é escrito com o voto do proponente, antes de a proposta sair do nó. O registro de remoção do mempool de um bloco confirmado é durável antes de o próximo bloco ser confirmado; um reinício refaz a remoção do último bloco confirmado.
+
 <!-- vexo-docs:technical-parity -->
 ## Apêndice de paridade técnica
 

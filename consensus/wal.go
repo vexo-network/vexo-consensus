@@ -51,7 +51,9 @@ type WALEvent struct {
 
 // WAL is the write-ahead log of the local validator's signing decisions. The file is a header
 // that names the format, followed by records, and every record is fsynced before the append
-// returns. A record is the length of its payload, the payload, and the CRC-32C of both. A torn
+// returns. A record is the length of its payload, the payload, and the CRC-32C of both. A record
+// holds one event, or a group of events that must reach the log together: a vote and the safety
+// state it is cast under are one record, so they cost one fsync and a crash keeps both or neither. A torn
 // tail from a crash mid-write is detected by the length and the checksum and truncated when the log
 // is opened; a damaged record that is followed by an intact record is reported as corruption, and
 // so is a file that does not start with the header.
@@ -65,6 +67,9 @@ type WAL struct {
 	safety    SafetyState
 	hasSafety bool
 	closed    bool
+	// staged holds the proposal records that wait for the next record the log syncs; see
+	// RecordProposal.
+	staged []WALEvent
 }
 
 // walVote is the single block a validator may vote for in one view.
@@ -102,7 +107,7 @@ func (wal *WAL) recover() error {
 	if err != nil {
 		return err
 	}
-	valid, err := scanWAL(wal.file, info.Size(), wal.apply)
+	valid, err := scanWAL(wal.file, info.Size(), wal.applyRecord)
 	if err != nil {
 		return err
 	}
@@ -140,18 +145,37 @@ func (wal *WAL) Close() error {
 	if wal.file == nil {
 		return nil
 	}
-	return wal.file.Close()
+	var stagedErr error
+	if len(wal.staged) > 0 {
+		stagedErr = wal.appendLocked()
+	}
+	return errors.Join(stagedErr, wal.file.Close())
 }
 
+// RecordProposal records the block the validator proposes in a view. Recovery never reads a
+// proposal record, which documents what the validator proposed, so it costs no fsync of its own:
+// it is written with the next record the log syncs, the vote the proposer casts for its proposal
+// before the proposal leaves the node. A crash that loses the record loses that vote with it, so
+// the proposal was never sent. Close writes a record that is still waiting.
 func (wal *WAL) RecordProposal(proposal Proposal) error {
-	return wal.append(WALEvent{
+	wal.mu.Lock()
+	defer wal.mu.Unlock()
+	if err := wal.ensureOpen(); err != nil {
+		return err
+	}
+	event := WALEvent{
 		Type:        WALEventProposal,
 		Time:        time.Now().UTC(),
 		ValidatorID: proposal.Proposer,
 		Height:      proposal.Block.Header.Height,
 		Round:       proposal.Round,
 		BlockHash:   HashBlock(proposal.Block),
-	})
+	}
+	if _, err := appendWALRecord(nil, event); err != nil {
+		return err
+	}
+	wal.staged = append(wal.staged, event)
+	return nil
 }
 
 // RecordVote persists the validator's vote for a view. A validator may vote for one block
@@ -162,24 +186,62 @@ func (wal *WAL) RecordVote(vote Vote) error {
 	if err := wal.ensureOpen(); err != nil {
 		return err
 	}
+	if err := wal.checkVote(vote); err != nil {
+		return err
+	}
+	if err := wal.appendLocked(voteEvent(vote)); err != nil {
+		return err
+	}
+	wal.rememberVote(vote)
+	return nil
+}
+
+// RecordVoteWithSafetyState persists the safety state the validator votes under and its vote for a
+// view in one record, with one fsync: a restart finds both or neither. It refuses what
+// RecordSafetyState and RecordVote refuse, and records nothing then.
+func (wal *WAL) RecordVoteWithSafetyState(state SafetyState, vote Vote) error {
+	wal.mu.Lock()
+	defer wal.mu.Unlock()
+	if err := wal.ensureOpen(); err != nil {
+		return err
+	}
+	if err := wal.checkSafetyState(state); err != nil {
+		return err
+	}
+	if err := wal.checkVote(vote); err != nil {
+		return err
+	}
+	if err := wal.appendLocked(safetyStateEvent(state), voteEvent(vote)); err != nil {
+		return err
+	}
+	wal.rememberSafetyState(state)
+	wal.rememberVote(vote)
+	return nil
+}
+
+func (wal *WAL) checkVote(vote Vote) error {
 	if previous, ok := wal.votes[vote.ValidatorID][vote.Round]; ok && (previous.blockHash != vote.BlockHash || previous.height != vote.Height) {
 		return fmt.Errorf("%w: validator=%s round=%d previous=%d/%x next=%d/%x", ErrDoubleSignDetected, vote.ValidatorID, vote.Round, previous.height, previous.blockHash, vote.Height, vote.BlockHash)
 	}
-	if err := wal.appendLocked(WALEvent{
+	return nil
+}
+
+func (wal *WAL) rememberVote(vote Vote) {
+	if wal.votes[vote.ValidatorID] == nil {
+		wal.votes[vote.ValidatorID] = make(map[types.Round]walVote)
+	}
+	wal.votes[vote.ValidatorID][vote.Round] = walVote{height: vote.Height, blockHash: vote.BlockHash}
+}
+
+func voteEvent(vote Vote) WALEvent {
+	return WALEvent{
 		Type:        WALEventVote,
 		Time:        time.Now().UTC(),
 		ValidatorID: vote.ValidatorID,
 		Height:      vote.Height,
 		Round:       vote.Round,
 		BlockHash:   vote.BlockHash,
-	}); err != nil {
-		return err
 	}
-	if wal.votes[vote.ValidatorID] == nil {
-		wal.votes[vote.ValidatorID] = make(map[types.Round]walVote)
-	}
-	wal.votes[vote.ValidatorID][vote.Round] = walVote{height: vote.Height, blockHash: vote.BlockHash}
-	return nil
 }
 
 // RecordedVote returns the block previously selected by a validator for a height and
@@ -206,24 +268,62 @@ func (wal *WAL) RecordTimeoutVote(vote TimeoutVote) error {
 	if err := wal.ensureOpen(); err != nil {
 		return err
 	}
+	if err := wal.checkTimeoutVote(vote); err != nil {
+		return err
+	}
+	if err := wal.appendLocked(timeoutVoteEvent(vote)); err != nil {
+		return err
+	}
+	wal.rememberTimeoutVote(vote)
+	return nil
+}
+
+// RecordTimeoutVoteWithSafetyState persists the safety state the validator leaves a view under and
+// its timeout vote for the view in one record, with one fsync: a restart finds both or neither. It
+// refuses what RecordSafetyState and RecordTimeoutVote refuse, and records nothing then.
+func (wal *WAL) RecordTimeoutVoteWithSafetyState(state SafetyState, vote TimeoutVote) error {
+	wal.mu.Lock()
+	defer wal.mu.Unlock()
+	if err := wal.ensureOpen(); err != nil {
+		return err
+	}
+	if err := wal.checkSafetyState(state); err != nil {
+		return err
+	}
+	if err := wal.checkTimeoutVote(vote); err != nil {
+		return err
+	}
+	if err := wal.appendLocked(safetyStateEvent(state), timeoutVoteEvent(vote)); err != nil {
+		return err
+	}
+	wal.rememberSafetyState(state)
+	wal.rememberTimeoutVote(vote)
+	return nil
+}
+
+func (wal *WAL) checkTimeoutVote(vote TimeoutVote) error {
 	if previous, ok := wal.timeouts[vote.ValidatorID][vote.Round]; ok && !sameQC(previous.HighQC, vote.HighQC) {
 		return fmt.Errorf("%w: timeout validator=%s round=%d", ErrDoubleSignDetected, vote.ValidatorID, vote.Round)
 	}
-	if err := wal.appendLocked(WALEvent{
+	return nil
+}
+
+func (wal *WAL) rememberTimeoutVote(vote TimeoutVote) {
+	if wal.timeouts[vote.ValidatorID] == nil {
+		wal.timeouts[vote.ValidatorID] = make(map[types.Round]TimeoutVote)
+	}
+	wal.timeouts[vote.ValidatorID][vote.Round] = vote
+}
+
+func timeoutVoteEvent(vote TimeoutVote) WALEvent {
+	return WALEvent{
 		Type:        WALEventTimeoutVote,
 		Time:        time.Now().UTC(),
 		ValidatorID: vote.ValidatorID,
 		Height:      vote.Height,
 		Round:       vote.Round,
 		TimeoutVote: &vote,
-	}); err != nil {
-		return err
 	}
-	if wal.timeouts[vote.ValidatorID] == nil {
-		wal.timeouts[vote.ValidatorID] = make(map[types.Round]TimeoutVote)
-	}
-	wal.timeouts[vote.ValidatorID][vote.Round] = vote
-	return nil
 }
 
 // RecordedTimeoutVote returns the timeout vote the validator signed in a view, so a
@@ -246,23 +346,36 @@ func (wal *WAL) RecordSafetyState(state SafetyState) error {
 	if err := wal.ensureOpen(); err != nil {
 		return err
 	}
-	if wal.hasSafety {
-		if err := checkSafetyProgress(wal.safety, state); err != nil {
-			return err
-		}
+	if err := wal.checkSafetyState(state); err != nil {
+		return err
 	}
-	if err := wal.appendLocked(WALEvent{
+	if err := wal.appendLocked(safetyStateEvent(state)); err != nil {
+		return err
+	}
+	wal.rememberSafetyState(state)
+	return nil
+}
+
+func (wal *WAL) checkSafetyState(state SafetyState) error {
+	if !wal.hasSafety {
+		return nil
+	}
+	return checkSafetyProgress(wal.safety, state)
+}
+
+func (wal *WAL) rememberSafetyState(state SafetyState) {
+	wal.safety = state
+	wal.hasSafety = true
+}
+
+func safetyStateEvent(state SafetyState) WALEvent {
+	return WALEvent{
 		Type:   WALEventSafetyState,
 		Time:   time.Now().UTC(),
 		Height: state.LastVotedHeight,
 		Round:  state.LastVotedRound,
 		Safety: &state,
-	}); err != nil {
-		return err
 	}
-	wal.safety = state
-	wal.hasSafety = true
-	return nil
 }
 
 // SafetyState returns the most recently persisted safety state.
@@ -311,10 +424,17 @@ func (wal *WAL) Replay() ([]WALEvent, error) {
 		return nil, err
 	}
 	var events []WALEvent
-	if _, err := scanWAL(file, info.Size(), func(event WALEvent) { events = append(events, event) }); err != nil {
+	if _, err := scanWAL(file, info.Size(), func(record []WALEvent) { events = append(events, record...) }); err != nil {
 		return nil, err
 	}
 	return events, nil
+}
+
+// applyRecord rebuilds the guards from the events of one record, in order.
+func (wal *WAL) applyRecord(record []WALEvent) {
+	for _, event := range record {
+		wal.apply(event)
+	}
 }
 
 func (wal *WAL) apply(event WALEvent) {
@@ -341,17 +461,13 @@ func (wal *WAL) apply(event WALEvent) {
 	}
 }
 
-func (wal *WAL) append(event WALEvent) error {
-	wal.mu.Lock()
-	defer wal.mu.Unlock()
-	if err := wal.ensureOpen(); err != nil {
-		return err
+// appendLocked writes the staged proposal records and events as one record and syncs it. The
+// staged records are dropped once they are durable; a failed append keeps them for the next one.
+func (wal *WAL) appendLocked(events ...WALEvent) error {
+	if len(wal.staged) > 0 {
+		events = append(slices.Clone(wal.staged), events...)
 	}
-	return wal.appendLocked(event)
-}
-
-func (wal *WAL) appendLocked(event WALEvent) error {
-	record, err := appendWALRecord(nil, event)
+	record, err := appendWALRecord(nil, events...)
 	if err != nil {
 		return err
 	}
@@ -368,6 +484,7 @@ func (wal *WAL) appendLocked(event WALEvent) error {
 		return err
 	}
 	wal.size += int64(len(record))
+	wal.staged = nil
 	return nil
 }
 
@@ -404,15 +521,53 @@ const (
 	walKindVote
 	walKindTimeoutVote
 	walKindSafetyState
+	// walKindGroup is a record of several events: a count of at least two, then the payload of each
+	// event, length-prefixed. An event of a group is not itself a group.
+	walKindGroup
 )
 
 var walChecksums = crc32.MakeTable(crc32.Castagnoli)
 
-// appendWALRecord appends the record of event to dst. It refuses an event that the log could not
-// read back, so that no record appended and fsynced can make the log fail to open.
-func appendWALRecord(dst []byte, event WALEvent) ([]byte, error) {
+// appendWALRecord appends the record of events to dst: the record of the event, or a group record
+// of several. It refuses events that the log could not read back, so that no record appended and
+// fsynced can make the log fail to open.
+func appendWALRecord(dst []byte, events ...WALEvent) ([]byte, error) {
 	start := len(dst)
 	dst = append(dst, 0, 0, 0, 0)
+	var err error
+	switch len(events) {
+	case 0:
+		return dst[:start], errors.New("wal record without an event")
+	case 1:
+		dst, err = appendWALPayload(dst, events[0])
+	default:
+		dst = append(dst, walKindGroup)
+		dst = binary.AppendUvarint(dst, uint64(len(events)))
+		var nested []byte
+		for _, event := range events {
+			if nested, err = appendWALPayload(nested[:0], event); err != nil {
+				break
+			}
+			dst = types.AppendBytes(dst, nested)
+		}
+	}
+	if err != nil {
+		return dst[:start], err
+	}
+	payload := dst[start+walLengthBytes:]
+	if len(payload) > maxWALPayload {
+		return dst[:start], fmt.Errorf("wal record of %d bytes is over the limit of %d", len(payload), maxWALPayload)
+	}
+	if _, err := readWALPayload(payload); err != nil {
+		return dst[:start], fmt.Errorf("wal record does not read back: %w", err)
+	}
+	binary.BigEndian.PutUint32(dst[start:], uint32(len(payload)))
+	return binary.BigEndian.AppendUint32(dst, crc32.Checksum(dst[start:], walChecksums)), nil
+}
+
+// appendWALPayload appends the payload of event to dst.
+func appendWALPayload(dst []byte, event WALEvent) ([]byte, error) {
+	start := len(dst)
 	switch event.Type {
 	case WALEventProposal:
 		dst = append(dst, walKindProposal)
@@ -446,18 +601,43 @@ func appendWALRecord(dst []byte, event WALEvent) ([]byte, error) {
 		dst = binary.AppendUvarint(dst, uint64(event.Safety.LastVotedHeight))
 		dst = binary.AppendUvarint(dst, uint64(event.Safety.LastVotedRound))
 	}
-	payload := dst[start+walLengthBytes:]
-	if len(payload) > maxWALPayload {
-		return dst[:start], fmt.Errorf("wal record of %d bytes is over the limit of %d", len(payload), maxWALPayload)
-	}
-	if _, err := readWALEvent(payload); err != nil {
-		return dst[:start], fmt.Errorf("wal record does not read back: %w", err)
-	}
-	binary.BigEndian.PutUint32(dst[start:], uint32(len(payload)))
-	return binary.BigEndian.AppendUint32(dst, crc32.Checksum(dst[start:], walChecksums)), nil
+	return dst, nil
 }
 
-// readWALEvent decodes the payload of a record.
+// readWALPayload decodes the payload of a record into its events.
+func readWALPayload(payload []byte) ([]WALEvent, error) {
+	if len(payload) == 0 || payload[0] != walKindGroup {
+		event, err := readWALEvent(payload)
+		if err != nil {
+			return nil, err
+		}
+		return []WALEvent{event}, nil
+	}
+	reader := types.NewReader(payload[1:])
+	// An event takes at least its length, its kind and its time.
+	count := reader.Count(maxWALPayload, 10)
+	if reader.Err() == nil && count < 2 {
+		reader.Fail("group of fewer than two events")
+	}
+	events := make([]WALEvent, 0, count)
+	for range count {
+		nested := reader.Bytes(maxWALPayload)
+		if reader.Err() != nil {
+			break
+		}
+		event, err := readWALEvent(nested)
+		if err != nil {
+			return nil, err
+		}
+		events = append(events, event)
+	}
+	if err := reader.Done(); err != nil {
+		return nil, err
+	}
+	return events, nil
+}
+
+// readWALEvent decodes the payload of an event; a group is not an event.
 func readWALEvent(payload []byte) (WALEvent, error) {
 	reader := types.NewReader(payload)
 	kind := reader.Byte()
@@ -495,58 +675,58 @@ func readWALEvent(payload []byte) (WALEvent, error) {
 	return event, nil
 }
 
-// parseWALRecord parses the record at the front of data. It returns ok false when the bytes are not
-// an intact record: they end early, their length is out of range, or their checksum does not match.
-// A record that matches its checksum and does not decode is an error, because a crash does not
-// produce one.
-func parseWALRecord(data []byte) (event WALEvent, length int, ok bool, err error) {
+// parseWALRecord parses the record at the front of data into its events. It returns ok false when
+// the bytes are not an intact record: they end early, their length is out of range, or their
+// checksum does not match. A record that matches its checksum and does not decode is an error,
+// because a crash does not produce one.
+func parseWALRecord(data []byte) (events []WALEvent, length int, ok bool, err error) {
 	if len(data) < walFrameBytes+1 {
-		return WALEvent{}, 0, false, nil
+		return nil, 0, false, nil
 	}
 	payloadLength := uint64(binary.BigEndian.Uint32(data))
 	if payloadLength == 0 || payloadLength > maxWALPayload || walFrameBytes+payloadLength > uint64(len(data)) {
-		return WALEvent{}, 0, false, nil
+		return nil, 0, false, nil
 	}
 	length = walFrameBytes + int(payloadLength)
 	checked, checksum := data[:length-walChecksumBytes], binary.BigEndian.Uint32(data[length-walChecksumBytes:length])
 	if crc32.Checksum(checked, walChecksums) != checksum {
-		return WALEvent{}, 0, false, nil
+		return nil, 0, false, nil
 	}
-	event, err = readWALEvent(checked[walLengthBytes:])
+	events, err = readWALPayload(checked[walLengthBytes:])
 	if err != nil {
-		return WALEvent{}, 0, false, fmt.Errorf("%w: a record that matches its checksum does not decode: %w", ErrWALCorrupt, err)
+		return nil, 0, false, fmt.Errorf("%w: a record that matches its checksum does not decode: %w", ErrWALCorrupt, err)
 	}
-	return event, length, true, nil
+	return events, length, true, nil
 }
 
 // readWALRecord reads the record at the front of reader, which has remaining bytes left, into
 // buffer and parses it.
-func readWALRecord(reader io.Reader, remaining int64, buffer *[]byte) (event WALEvent, length int, ok bool, err error) {
+func readWALRecord(reader io.Reader, remaining int64, buffer *[]byte) (events []WALEvent, length int, ok bool, err error) {
 	if remaining < walFrameBytes+1 {
-		return WALEvent{}, 0, false, nil
+		return nil, 0, false, nil
 	}
 	var frame [walLengthBytes]byte
 	if _, err := io.ReadFull(reader, frame[:]); err != nil {
-		return WALEvent{}, 0, false, err
+		return nil, 0, false, err
 	}
 	payloadLength := int64(binary.BigEndian.Uint32(frame[:]))
 	if payloadLength == 0 || payloadLength > maxWALPayload || walFrameBytes+payloadLength > remaining {
-		return WALEvent{}, 0, false, nil
+		return nil, 0, false, nil
 	}
 	record := slices.Grow((*buffer)[:0], int(walFrameBytes+payloadLength))[:walFrameBytes+payloadLength]
 	*buffer = record
 	copy(record, frame[:])
 	if _, err := io.ReadFull(reader, record[walLengthBytes:]); err != nil {
-		return WALEvent{}, 0, false, err
+		return nil, 0, false, err
 	}
 	return parseWALRecord(record)
 }
 
-// scanWAL reads the log in src, which holds size bytes, and passes the event of every intact record
+// scanWAL reads the log in src, which holds size bytes, and passes the events of every intact record
 // to visit in order. It returns the length of the prefix of the log that ends the last intact
 // record, which is shorter than size when the log ends in a torn record. A log of zero bytes or of a
 // part of the header is a log that was never written, and has the prefix 0.
-func scanWAL(src io.ReaderAt, size int64, visit func(WALEvent)) (int64, error) {
+func scanWAL(src io.ReaderAt, size int64, visit func([]WALEvent)) (int64, error) {
 	head := make([]byte, min(size, int64(len(walHeader))))
 	if _, err := io.ReadFull(io.NewSectionReader(src, 0, int64(len(head))), head); err != nil {
 		return 0, err
@@ -561,14 +741,14 @@ func scanWAL(src io.ReaderAt, size int64, visit func(WALEvent)) (int64, error) {
 	reader := bufio.NewReaderSize(io.NewSectionReader(src, valid, size-valid), walReadBytes)
 	var buffer []byte
 	for valid < size {
-		event, length, ok, err := readWALRecord(reader, size-valid, &buffer)
+		events, length, ok, err := readWALRecord(reader, size-valid, &buffer)
 		if err != nil {
 			return 0, err
 		}
 		if !ok {
 			break
 		}
-		visit(event)
+		visit(events)
 		valid += int64(length)
 	}
 	if valid < size {

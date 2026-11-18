@@ -399,10 +399,12 @@ func (runtime *Runtime) WithUpgrade(plan upgrade.Plan, state upgrade.State, exec
 }
 
 func (runtime *Runtime) ExecuteBlock(ctx context.Context, block types.Block) (app.FinalizeBlockResponse, error) {
-	return runtime.executeBlock(ctx, block, nil)
+	return runtime.executeBlock(ctx, block, nil, nil)
 }
 
-func (runtime *Runtime) ExecuteCertifiedBlock(ctx context.Context, block types.Block, quorumCert finality.QuorumCert) (app.FinalizeBlockResponse, error) {
+// ExecuteCertifiedBlock executes block, which quorumCert certifies, and commits it. proofs are the
+// finality proofs the certificate completes; they are stored with the block, in the same write.
+func (runtime *Runtime) ExecuteCertifiedBlock(ctx context.Context, block types.Block, quorumCert finality.QuorumCert, proofs []store.FinalityProofRecord) (app.FinalizeBlockResponse, error) {
 	blockHash := consensus.HashBlock(block)
 	if quorumCert.Height != block.Header.Height {
 		return app.FinalizeBlockResponse{}, finality.ErrHeightMismatch
@@ -410,10 +412,10 @@ func (runtime *Runtime) ExecuteCertifiedBlock(ctx context.Context, block types.B
 	if quorumCert.BlockHash != blockHash {
 		return app.FinalizeBlockResponse{}, finality.ErrBlockHashMismatch
 	}
-	return runtime.executeBlock(ctx, block, &quorumCert)
+	return runtime.executeBlock(ctx, block, &quorumCert, proofs)
 }
 
-func (runtime *Runtime) executeBlock(ctx context.Context, block types.Block, quorumCert *finality.QuorumCert) (app.FinalizeBlockResponse, error) {
+func (runtime *Runtime) executeBlock(ctx context.Context, block types.Block, quorumCert *finality.QuorumCert, proofs []store.FinalityProofRecord) (app.FinalizeBlockResponse, error) {
 	if err := runtime.applyUpgradeHook(ctx, block.Header.Height); err != nil {
 		return app.FinalizeBlockResponse{}, err
 	}
@@ -426,7 +428,7 @@ func (runtime *Runtime) executeBlock(ctx context.Context, block types.Block, quo
 		if !ok {
 			return app.FinalizeBlockResponse{}, ErrAtomicAppCommitUnavailable
 		}
-		return runtime.executeBlockStaged(ctx, block, quorumCert, atomicApp, commitStore)
+		return runtime.executeBlockStaged(ctx, block, quorumCert, atomicApp, commitStore, proofs)
 	}
 	response, err := runtime.Executor.Execute(ctx, runtime.App, block)
 	if err != nil {
@@ -444,7 +446,7 @@ func (runtime *Runtime) executeBlock(ctx context.Context, block types.Block, quo
 // atomic write. The application is the only authority on what a block does: the fee market it
 // reports is what the state record keeps, and a validator update it reports can never fail the
 // block, because the registry skips an update it cannot apply.
-func (runtime *Runtime) executeBlockStaged(ctx context.Context, block types.Block, quorumCert *finality.QuorumCert, application app.AtomicBlockApplication, commitStore store.AppBlockCommitStore) (app.FinalizeBlockResponse, error) {
+func (runtime *Runtime) executeBlockStaged(ctx context.Context, block types.Block, quorumCert *finality.QuorumCert, application app.AtomicBlockApplication, commitStore store.AppBlockCommitStore, proofs []store.FinalityProofRecord) (app.FinalizeBlockResponse, error) {
 	response, writes, err := application.FinalizeBlockStagedContext(ctx, app.FinalizeBlockRequest{Block: block})
 	if err != nil {
 		return app.FinalizeBlockResponse{}, err
@@ -501,7 +503,7 @@ func (runtime *Runtime) executeBlockStaged(ctx context.Context, block types.Bloc
 		BlobGasUsed:      feeMarket.BlobGasUsed,
 		ExcessBlobGas:    excessBlobGas(feeMarket.BlobGasUsed, runtime.Config.Execution.TargetBlobGas),
 	}
-	if err := commitStore.CommitBlockStateWithWrites(ctx, writes, blockRecord, stateRecord, stateRoots); err != nil {
+	if err := commitStore.CommitBlockStateWithWrites(ctx, writes, blockRecord, stateRecord, stateRoots, proofs); err != nil {
 		return app.FinalizeBlockResponse{}, err
 	}
 	application.CommitStagedBlock(block.Header.Height, response.AppHash)

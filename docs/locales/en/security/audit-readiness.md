@@ -189,7 +189,8 @@ For mempool WAL:
 
 - Every accepted tx or batch event is durable before its submission returns. Records are `uvarint(length) | op | payload | CRC-32C`; concurrent admissions share one fsync (group commit), and the node waits for it without holding the admission lock.
 - Replay truncates a torn or corrupt final record and refuses a log damaged before its end (`ErrWALCorrupt`). An I/O failure stops appends until the log is rewritten from the pool.
-- The consensus WAL uses the same framing (4-byte big-endian length, payload, 4-byte CRC-32C): a torn tail is truncated, mid-file corruption is refused.
+- The consensus WAL uses the same framing (4-byte big-endian length, payload, 4-byte CRC-32C): a torn tail is truncated, mid-file corruption is refused. A vote and the safety state it moves the machine to are one group record, written with one fsync and recovered whole or not at all; a proposal record costs no fsync of its own and is written with the proposer's vote, before the proposal leaves the node.
+- A committed block's mempool removal record is durable before the next block commits; a restart repeats the removal for the last committed block.
 - Compaction should write a complete replacement file and atomically swap it into place.
 - Reopened mempool should contain pending txs and exclude committed txs.
 

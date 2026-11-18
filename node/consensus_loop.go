@@ -172,16 +172,18 @@ func (reactor *autoVoteReactor) localVote(height types.Height, round types.Round
 		}
 	}
 	// The machine already moved its lock and last voted view when it accepted the proposal. They are
-	// persisted before anything is signed, so a restart cannot vote against them.
-	if err := reactor.recordSafetyState(); err != nil {
-		return consensus.Vote{}, false, err
-	}
+	// persisted with the vote, in one record, before the vote leaves the validator, so a restart can
+	// neither vote against them nor forget the vote.
 	vote, err := reactor.signLocalVote(height, round, blockHash)
 	if err != nil {
 		return consensus.Vote{}, false, err
 	}
 	if reactor.wal != nil {
-		if err := reactor.wal.RecordVote(vote); err != nil {
+		var state consensus.SafetyState
+		if reactor.machine != nil {
+			state = reactor.machine.SafetyState()
+		}
+		if err := reactor.recordVote(state, vote); err != nil {
 			reactor.reportError("vote_wal_failed", err)
 			return consensus.Vote{}, false, err
 		}
@@ -256,18 +258,13 @@ func (reactor *autoVoteReactor) cacheLocalVote(vote consensus.Vote) {
 	reactor.localVotes[key] = vote
 }
 
-// recordSafetyState persists the lock, the highest certificate and the last voted view of the
-// machine. The validator calls it before it signs a vote, so what it signed can never be voted
-// against after a restart.
-func (reactor *autoVoteReactor) recordSafetyState() error {
-	if reactor.wal == nil || reactor.machine == nil {
-		return nil
+// recordVote persists vote and the safety state of the machine it is cast under: the lock, the
+// highest certificate and the last voted view. A reactor without a machine records the vote alone.
+func (reactor *autoVoteReactor) recordVote(state consensus.SafetyState, vote consensus.Vote) error {
+	if reactor.machine == nil {
+		return reactor.wal.RecordVote(vote)
 	}
-	if err := reactor.wal.RecordSafetyState(reactor.machine.SafetyState()); err != nil {
-		reactor.reportError("safety_state_wal_failed", err)
-		return err
-	}
-	return nil
+	return reactor.wal.RecordVoteWithSafetyState(state, vote)
 }
 
 // pruneAtOrBelow drops everything the reactor buffers for heights that are committed.
@@ -713,15 +710,16 @@ func (node *Node) TimeoutRound(ctx context.Context) (finality.TimeoutCert, bool,
 		ValidatorID: node.cfg.ValidatorID,
 		HighQC:      machine.HighQC(ctx),
 	}
-	// Leaving the view is persisted before the timeout vote is signed, so a restart cannot vote in a
-	// view this validator has already given up on.
-	if err := node.recordTimeoutSafety(machine, vote); err != nil {
+	// Leaving the view is persisted with the timeout vote, in one record, before the vote leaves the
+	// validator, so a restart can neither vote in a view this validator gave up on nor sign a
+	// different timeout vote for it.
+	if err := leaveTimedOutView(machine, vote); err != nil {
 		return finality.TimeoutCert{}, false, err
 	}
 	if err := node.signConsensusTimeoutVote(&vote); err != nil {
 		return finality.TimeoutCert{}, false, err
 	}
-	if err := node.recordConsensusTimeoutVote(vote); err != nil {
+	if err := node.recordConsensusTimeoutVote(machine.SafetyState(), vote); err != nil {
 		return finality.TimeoutCert{}, false, err
 	}
 	node.cacheTimeoutVote(vote)
@@ -922,14 +920,15 @@ func signWithConsensusPolicy(signer vexocrypto.Signer, policy vexocrypto.SignPol
 	return policySigner.SignWithPolicy(policy, message)
 }
 
-func (node *Node) recordConsensusTimeoutVote(vote consensus.TimeoutVote) error {
+// recordConsensusTimeoutVote persists vote and the safety state the validator leaves its view under.
+func (node *Node) recordConsensusTimeoutVote(state consensus.SafetyState, vote consensus.TimeoutVote) error {
 	node.mu.Lock()
 	wal := node.consensusWAL
 	node.mu.Unlock()
 	if wal == nil {
 		return nil
 	}
-	return wal.RecordTimeoutVote(vote)
+	return wal.RecordTimeoutVoteWithSafetyState(state, vote)
 }
 
 // commitBlock executes a certified block and finishes its commit. A commit raises the height the
@@ -1002,7 +1001,19 @@ func (node *Node) executeCommit(ctx context.Context, block types.Block, quorumCe
 		return app.FinalizeBlockResponse{}, err
 	}
 
-	response, err := runtime.ExecuteCertifiedBlock(ctx, block, quorumCert)
+	if err := node.settleCommittedMark(ctx, runtime); err != nil {
+		return app.FinalizeBlockResponse{}, err
+	}
+	// The finality proofs this certificate completes are stored with the block, in its one durable
+	// write, instead of costing a write and a sync of their own after it.
+	var proofs []store.FinalityProofRecord
+	var provenHeight types.Height
+	if proofStore, ok := runtime.Store.(store.FinalityProofStore); ok && proofStore != nil {
+		if proofs, provenHeight, err = node.finalityRecords(ctx, runtime, proofStore, machine, &block); err != nil {
+			return app.FinalizeBlockResponse{}, err
+		}
+	}
+	response, err := runtime.ExecuteCertifiedBlock(ctx, block, quorumCert, proofs)
 	if err != nil {
 		if strings.Contains(err.Error(), "invalid transaction nonce") {
 			node.removeNonceInvalidProposalTxs(block, quorumCert.Round)
@@ -1014,6 +1025,7 @@ func (node *Node) executeCommit(ctx context.Context, block types.Block, quorumCe
 	node.mu.Lock()
 	node.committedHeader = new(block.Header)
 	node.mu.Unlock()
+	node.markFinalityPersisted(provenHeight)
 	var commitProof finality.Proof
 	if broadcast {
 		proof, err := node.buildCommitFinalityProof(ctx, runtime, block, quorumCert)
@@ -1044,52 +1056,88 @@ func (node *Node) executeCommit(ctx context.Context, block types.Block, quorumCe
 	return response, nil
 }
 
-// persistFinalityDecisions stores the finality proof of every commit decision the machine holds. A
-// high-water mark records the height up to which every decision is stored, so a commit does not
-// rebuild the proofs of the decisions it already stored. committed, when not nil, is the block the
-// caller just made durable; its proof is built from it instead of reading it back.
+// persistFinalityDecisions stores the finality proof of every commit decision the machine holds
+// that is not stored yet; see finalityRecords. A commit stores those proofs with its block, so this
+// only writes what a failed commit left behind, as reconcileCommitted repeats it.
 func (node *Node) persistFinalityDecisions(ctx context.Context, runtime *vexoruntime.Runtime, machine *consensus.StateMachine, committed *types.Block) error {
 	proofStore, ok := runtime.Store.(store.FinalityProofStore)
 	if !ok || proofStore == nil {
 		return nil
 	}
+	records, provenHeight, err := node.finalityRecords(ctx, runtime, proofStore, machine, committed)
+	if err != nil {
+		return err
+	}
+	for _, record := range records {
+		if err := proofStore.SaveFinalityProof(ctx, record); err != nil {
+			return err
+		}
+	}
+	node.markFinalityPersisted(provenHeight)
+	return nil
+}
+
+// finalityRecords builds the finality proofs of the commit decisions the machine holds above the
+// high-water mark that the store does not hold yet, in height order. provenHeight is the height up to
+// which every decision is then stored, which the caller records with markFinalityPersisted once the
+// records are durable, so a later commit does not rebuild them. committed, when not nil, is the block
+// being committed; its proof is built from it, as the store may not hold it yet. A decision whose
+// block is not executed ends the list, as does every decision above it. A proof the store would refuse
+// is left out, so it cannot keep the block from being committed; persistFinalityDecisions then reports
+// it.
+func (node *Node) finalityRecords(ctx context.Context, runtime *vexoruntime.Runtime, proofStore store.FinalityProofStore, machine *consensus.StateMachine, committed *types.Block) ([]store.FinalityProofRecord, types.Height, error) {
 	decisions := machine.CommitDecisions()
 	sort.Slice(decisions, func(left, right int) bool {
 		return decisions[left].CommittedHeight < decisions[right].CommittedHeight
 	})
 	node.mu.Lock()
-	persisted := node.finalityPersisted
+	provenHeight := node.finalityPersisted
 	node.mu.Unlock()
+	persisted := provenHeight
 	contiguous := true
+	var records []store.FinalityProofRecord
 	for _, decision := range decisions {
 		if decision.CommittedHeight <= persisted {
 			continue
 		}
-		stored, err := node.persistFinalityDecision(ctx, runtime, proofStore, decision, committed)
+		record, complete, err := node.finalityRecord(ctx, runtime, proofStore, decision, committed)
 		if errors.Is(err, store.ErrBlockNotFound) {
-			// The block is not executed yet, and neither is any block above it.
 			break
 		}
 		if err != nil {
-			return err
+			return nil, 0, err
 		}
-		if !stored {
+		if !complete {
 			// The child of the block is not known yet. The decision is retried by the next commit.
 			contiguous = false
 			continue
 		}
+		if record != nil {
+			if store.ValidateFinalityProofRecord(*record) != nil {
+				contiguous = false
+				continue
+			}
+			records = append(records, *record)
+		}
 		if contiguous {
-			node.mu.Lock()
-			node.finalityPersisted = decision.CommittedHeight
-			node.mu.Unlock()
+			provenHeight = decision.CommittedHeight
 		}
 	}
-	return nil
+	return records, provenHeight, nil
 }
 
-// persistFinalityDecision stores the proof of one decision. It reports false when the child that
-// completes the proof is not known yet.
-func (node *Node) persistFinalityDecision(ctx context.Context, runtime *vexoruntime.Runtime, proofStore store.FinalityProofStore, decision consensus.CommitDecision, committed *types.Block) (bool, error) {
+// markFinalityPersisted raises the height up to which every decision's proof is stored.
+func (node *Node) markFinalityPersisted(height types.Height) {
+	node.mu.Lock()
+	defer node.mu.Unlock()
+	if height > node.finalityPersisted {
+		node.finalityPersisted = height
+	}
+}
+
+// finalityRecord builds the proof of one decision. complete is false when the child that completes
+// the proof is not known yet; the record is nil when the store already holds it.
+func (node *Node) finalityRecord(ctx context.Context, runtime *vexoruntime.Runtime, proofStore store.FinalityProofStore, decision consensus.CommitDecision, committed *types.Block) (*store.FinalityProofRecord, bool, error) {
 	var proof finality.Proof
 	var err error
 	if committed != nil && committed.Header.Height == decision.CommittedHeight {
@@ -1098,30 +1146,27 @@ func (node *Node) persistFinalityDecision(ctx context.Context, runtime *vexorunt
 		proof, err = runtime.FinalityProof(ctx, decision.CommittedHeight, decision.CommitQC)
 	}
 	if errors.Is(err, store.ErrFinalityNotFound) {
-		return false, nil
+		return nil, false, nil
 	}
 	if err != nil {
-		return false, err
+		return nil, false, err
 	}
 	proof, err = node.attachCommitChainProof(ctx, runtime, proof)
 	if errors.Is(err, ErrFinalityNotFound) {
-		return false, nil
+		return nil, false, nil
 	}
 	if err != nil {
-		return false, err
+		return nil, false, err
 	}
 	record := finalityProofRecord(proof)
 	stored, err := proofStore.FinalityProof(ctx, decision.CommittedHeight)
 	if err == nil && reflect.DeepEqual(stored, record) {
-		return true, nil
+		return nil, true, nil
 	}
 	if err != nil && !errors.Is(err, store.ErrFinalityNotFound) {
-		return false, err
+		return nil, false, err
 	}
-	if err := proofStore.SaveFinalityProof(ctx, record); err != nil {
-		return false, err
-	}
-	return true, nil
+	return &record, true, nil
 }
 
 func (node *Node) buildCommitFinalityProof(ctx context.Context, runtime *vexoruntime.Runtime, block types.Block, quorumCert finality.QuorumCert) (finality.Proof, error) {

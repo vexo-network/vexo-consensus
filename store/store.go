@@ -151,8 +151,11 @@ type FinalityProofStore interface {
 	LatestFinalityProof(ctx context.Context) (FinalityProofRecord, error)
 }
 
+// AppBlockCommitStore commits a block with everything it changed in one atomic, durable write:
+// its state writes, its block, state and state root records, and the finality proofs the block's
+// certificate completes, so a block costs one sync however many records it adds.
 type AppBlockCommitStore interface {
-	CommitBlockStateWithWrites(ctx context.Context, writes []KVWrite, block BlockRecord, state StateRecord, roots []StateRootRecord) error
+	CommitBlockStateWithWrites(ctx context.Context, writes []KVWrite, block BlockRecord, state StateRecord, roots []StateRootRecord, proofs []FinalityProofRecord) error
 }
 
 // StateTreeStore keeps the state tree of every namespace, with the versions of its nodes, and

@@ -109,6 +109,10 @@ Lịch sử state là undo log các phiên bản theo key. Khi một key thay đ
 
 Commit chỉ nén WAL của mempool khi nó chứa ít nhất 4 MiB và gấp đôi lượng nó chứa sau lần nén hoặc mở gần nhất. Vì vậy mỗi byte được ghi thêm trung bình chỉ được ghi lại khoảng một lần, và log mà lần khởi động lại phát lại luôn nằm trong gấp đôi nội dung sống hoặc 4 MiB. Nén tường minh (`Node.Compact`, hoặc lần khởi động bỏ các giao dịch phát lại mà ứng dụng từ chối) luôn ghi lại nó. `InitChain` ghi state genesis của mọi module thành một batch, nên genesis nhiều tài khoản chỉ tốn một lần ghi bền vững và genesis thất bại không để lại gì trong store.
 
+## Finality proof trong batch commit và việc xóa khỏi mempool được trì hoãn
+
+Đường commit của node ghi các finality proof mà QC của block hoàn tất vào cùng batch block/state/app-write (`CommitBlockStateWithWrites` nhận chúng làm tham số cuối). Vì vậy một commit chỉ tốn một lần ghi durable thay vì thêm một lần cho mỗi proof. Proof mà store sẽ từ chối được để ngoài batch và do bước sau commit lưu, bước này báo lỗi. Commit xóa các giao dịch của mình khỏi pool và đưa record xóa vào hàng đợi mà không chờ sync. Commit kế tiếp chờ record đó durable rồi mới thực thi block của mình, vì khi khởi động lại node chỉ làm lại việc xóa cho block được commit cuối cùng. Record này thường đi cùng lần sync của một admission sau đó.
+
 <!-- vexo-docs:technical-parity -->
 ## Phụ lục tương đương kỹ thuật
 

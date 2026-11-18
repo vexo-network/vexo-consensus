@@ -109,6 +109,10 @@ O histórico de estado é um undo log de versões por chave. Quando uma chave mu
 
 Um commit compacta o WAL do mempool só quando ele contém pelo menos 4 MiB e o dobro do que continha após a última compactação ou abertura. Assim cada byte acrescentado é reescrito em média cerca de uma vez, e o log que um reinício reproduz fica dentro do dobro do conteúdo vivo ou de 4 MiB. Uma compactação explícita (`Node.Compact`, ou um início que descarta transações reproduzidas que a aplicação recusa) sempre o reescreve. `InitChain` grava o estado de genesis de todos os módulos como um único batch, de modo que um genesis com muitas contas custa uma escrita durável e um genesis que falha não deixa nada no store.
 
+## Finality proofs no batch do commit e remoção adiada do mempool
+
+O caminho de commit do nó grava as finality proofs que o QC do bloco completa no mesmo batch de block/state/app-write (`CommitBlockStateWithWrites` as recebe como último argumento). Assim um commit custa uma escrita durável em vez de uma a mais por proof. Uma proof que o store recusaria fica fora do batch e é gravada pela etapa posterior ao commit, que relata a falha. Um commit remove suas transações do pool e enfileira o registro de remoção sem esperar seu sync. O commit seguinte espera esse registro ficar durável antes de executar seu bloco, porque um reinício refaz a remoção apenas para o último bloco confirmado. Em geral o registro compartilha o sync de uma admissão posterior.
+
 <!-- vexo-docs:technical-parity -->
 ## Apêndice de paridade técnica
 

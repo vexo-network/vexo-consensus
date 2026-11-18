@@ -12,6 +12,7 @@ import (
 	"github.com/vexo-network/vexo-consensus/consensus"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	"github.com/vexo-network/vexo-consensus/lanes"
+	"github.com/vexo-network/vexo-consensus/mempool"
 	"github.com/vexo-network/vexo-consensus/p2p"
 	vexoruntime "github.com/vexo-network/vexo-consensus/runtime"
 	"github.com/vexo-network/vexo-consensus/slashing"
@@ -75,10 +76,13 @@ type Node struct {
 	stepMu      sync.Mutex
 	commitMu    sync.Mutex
 	admissionMu sync.Mutex
-	broadcastMu sync.Mutex
-	runtime     *vexoruntime.Runtime
-	consensus   *consensus.StateMachine
-	reactor     *consensus.TransportReactor
+	// committedMark is the mempool removal of the last committed block's transactions, which the
+	// next commit waits for (see settleCommittedMark). commitMu guards it.
+	committedMark mempool.Durable
+	broadcastMu   sync.Mutex
+	runtime       *vexoruntime.Runtime
+	consensus     *consensus.StateMachine
+	reactor       *consensus.TransportReactor
 	// lanes disseminates the transactions this validator batches and stores those of the others
 	// (see package lanes); nil for a node that runs no validator or no transport.
 	lanes *lanes.Lanes

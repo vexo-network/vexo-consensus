@@ -109,6 +109,10 @@
 
 只有当 mempool WAL 至少 4 MiB 且达到上次压缩(或打开)后大小的两倍时,commit 才会压缩日志。因此每个追加的字节平均只被重写约一次,重启时 replay 的日志保持在 live 内容的两倍或 4 MiB 以内。显式压缩(`Node.Compact`,或启动时丢弃 application 拒绝的 replay 交易)总是重写日志。`InitChain` 把所有 module 的 genesis state 作为一个 batch 写入,因此账户很多的 genesis 也只需一次持久写入,失败的 genesis 不会在 store 中留下任何内容。
 
+## Commit batch 中的 finality proof 与延迟的 mempool 移除
+
+节点 commit 路径把 block 的 QC 所完成的 finality proof 与 block/state/app-write batch 一起写入(`CommitBlockStateWithWrites` 的最后一个参数)。因此一次 commit 只需一次 durable write,而不是每个 proof 再多一次。store 会拒绝的 proof 不进入 batch,由 commit 之后的步骤保存并报告失败。commit 从 pool 中移除自己的交易,并在不等待 sync 的情况下把移除 record 放入队列。下一次 commit 在执行自己的 block 之前等待该 record 变为 durable,因为重启只会重做最后一个已 commit block 的移除。移除 record 通常与随后 admission 的 sync 共用一次。
+
 <!-- vexo-docs:technical-parity -->
 ## 技术等价附录
 

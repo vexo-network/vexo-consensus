@@ -72,6 +72,10 @@ Les éléments remis aux auditeurs doivent inclure l’audit VRF adapter en plus
 
 Chaque événement de tx ou de batch accepté est durable avant le retour de sa soumission. Les enregistrements sont `uvarint(length) | op | payload | CRC-32C` ; les admissions concurrentes partagent un fsync (group commit) et le nœud l'attend sans tenir le verrou d'admission. Le replay tronque un dernier enregistrement déchiré ou corrompu et refuse un journal endommagé avant sa fin (`ErrWALCorrupt`). Après un échec d'E/S, les ajouts s'arrêtent jusqu'à la réécriture du journal depuis le pool. Le WAL de consensus utilise le même découpage (longueur big-endian de 4 octets, payload, CRC-32C de 4 octets) : une fin déchirée est tronquée, une corruption au milieu refusée.
 
+## Enregistrements groupés du consensus WAL et durabilité du retrait du mempool
+
+Un vote et le safety state vers lequel il fait passer la machine forment un enregistrement groupé, écrit avec un seul fsync et récupéré en entier ou pas du tout. Un enregistrement de proposition n'a pas de fsync propre et il est écrit avec le vote du proposeur, avant que la proposition quitte le nœud. L'enregistrement de retrait du mempool d'un bloc commité est durable avant que le bloc suivant soit commité ; un redémarrage refait le retrait pour le dernier bloc commité.
+
 <!-- vexo-docs:technical-parity -->
 ## Annexe de parité technique
 

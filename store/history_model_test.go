@@ -136,7 +136,7 @@ func TestHistoryMatchesAModelOfEveryCommittedState(t *testing.T) {
 					roots = append(roots, StateRootRecord{Height: height, Namespace: namespace, Root: root})
 				}
 				block := BlockRecord{Block: types.Block{Header: types.Header{Height: height}}, Hash: types.Hash{byte(height), byte(height >> 8), 1}}
-				if err := storage.CommitBlockStateWithWrites(ctx, writes, block, StateRecord{Height: height}, roots); err != nil {
+				if err := storage.CommitBlockStateWithWrites(ctx, writes, block, StateRecord{Height: height}, roots, nil); err != nil {
 					t.Fatal(err)
 				}
 				if height > 10 && random.Intn(8) == 0 {

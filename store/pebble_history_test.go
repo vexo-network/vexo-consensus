@@ -17,6 +17,7 @@ func commitWritesForTest(t *testing.T, store *PebbleStore, height types.Height, 
 		BlockRecord{Block: types.Block{Header: types.Header{Height: height}}, Hash: types.Hash{byte(height), byte(height >> 8)}},
 		StateRecord{Height: height, AppHash: types.Hash{byte(height)}},
 		nil,
+		nil,
 	); err != nil {
 		t.Fatal(err)
 	}

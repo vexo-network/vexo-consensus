@@ -78,6 +78,10 @@
 
 每个被接受的 tx 或 batch 事件在提交返回之前即已持久化。记录格式为 `uvarint(length) | op | payload | CRC-32C`;并发的准入共享一次 fsync(group commit),节点在不持有准入锁的情况下等待它。replay 会截断撕裂或损坏的最后一条记录,并拒绝在末尾之前损坏的日志(`ErrWALCorrupt`)。发生 I/O 失败后,在日志从 pool 重写之前停止追加。consensus WAL 使用相同的 framing(4 字节 big-endian 长度、payload、4 字节 CRC-32C):截断撕裂的尾部,拒绝中间损坏。
 
+## Consensus WAL 的 group record 与 mempool 移除的持久性
+
+vote 与它使状态机进入的 safety state 组成一个 group record,一次 fsync 写入,恢复时要么整体保留要么整体丢弃。proposal record 没有自己的 fsync,它与 proposer 的 vote 一起、在 proposal 离开节点之前写入。已 commit block 的 mempool 移除 record 在下一个 block commit 之前变为 durable,重启会重做最后一个已 commit block 的移除。
+
 <!-- vexo-docs:technical-parity -->
 ## 技术等价附录
 

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"github.com/cockroachdb/pebble/v2"
+	"reflect"
 	"testing"
 
 	"github.com/vexo-network/vexo-consensus/slashing"
@@ -152,7 +153,7 @@ func TestPebbleStoreCommitBlockStateWithWritesPersistsKVAndMetadataAtomically(t 
 		t.Fatal(err)
 	}
 	roots := []StateRootRecord{{Height: 1, Namespace: "bank", Root: root}}
-	if err := store.CommitBlockStateWithWrites(context.Background(), writes, block, state, roots); err != nil {
+	if err := store.CommitBlockStateWithWrites(context.Background(), writes, block, state, roots, nil); err != nil {
 		t.Fatal(err)
 	}
 	value, err := store.Get(context.Background(), "bank", []byte("alice"))
@@ -233,6 +234,7 @@ func commitVersionedKVForTest(t *testing.T, store *PebbleStore, height types.Hei
 		BlockRecord{Block: types.Block{Header: types.Header{Height: height}}, Hash: types.Hash{byte(height)}, AppHash: types.Hash{byte(height)}},
 		StateRecord{Height: height, AppHash: types.Hash{byte(height)}, LastBlockHash: types.Hash{byte(height)}},
 		[]StateRootRecord{{Height: height, Namespace: "bank", Root: root}},
+		nil,
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -1423,5 +1425,52 @@ func TestPebbleStoreClosesTwice(t *testing.T) {
 	}
 	if err := storage.Close(); err != nil {
 		t.Fatalf("expected a second close to do nothing, got %v", err)
+	}
+}
+
+// A block commit stores the finality proofs it carries in its one write, the last as the latest,
+// and a proof that does not prove its header refuses the whole commit.
+func TestPebbleStoreCommitsFinalityProofsWithTheBlock(t *testing.T) {
+	ctx := context.Background()
+	storage := openTestStore(t)
+	defer closeStore(t, storage)
+	block := func(height types.Height) BlockRecord {
+		return BlockRecord{Block: types.Block{Header: types.Header{Height: height}}, Hash: types.Hash{byte(height), 0xff}}
+	}
+	first := twoChainFinalityRecord()
+	second := twoChainFinalityRecord()
+	second.Header.Height, second.QuorumCert.Height = 8, 8
+	second.Header.Round, second.QuorumCert.Round = 5, 5
+	second.Header.JustifyRound = 4
+	second.BlockHash, second.QuorumCert.BlockHash = types.Hash{8}, types.Hash{8}
+	second.CommitChain = []CommitLinkRecord{{
+		Header:     types.Header{ChainID: "vexo-test", Height: 9, Round: 6, JustifyRound: 5, PreviousBlockHash: types.Hash{8}, ValidatorSetHeight: 7, ValidatorSetHash: types.Hash{2}},
+		BlockHash:  types.Hash{9},
+		QuorumCert: QuorumCertRecord{Height: 9, Round: 6, BlockHash: types.Hash{9}, Signers: types.Bitmap("alice")},
+	}}
+	invalid := twoChainFinalityRecord()
+	invalid.QuorumCert.BlockHash = types.Hash{99}
+	writes := []KVWrite{{Namespace: "bank", Key: []byte("alice"), Value: []byte("1")}}
+	if err := storage.CommitBlockStateWithWrites(ctx, writes, block(1), StateRecord{Height: 1}, nil, []FinalityProofRecord{first, invalid}); !errors.Is(err, ErrInvalidFinality) {
+		t.Fatalf("a commit carrying an invalid proof: %v", err)
+	}
+	if _, err := storage.BlockByHeight(ctx, 1); !errors.Is(err, ErrBlockNotFound) {
+		t.Fatalf("a refused commit stored its block: %v", err)
+	}
+	if _, err := storage.FinalityProof(ctx, 7); !errors.Is(err, ErrFinalityNotFound) {
+		t.Fatalf("a refused commit stored a proof: %v", err)
+	}
+	if err := storage.CommitBlockStateWithWrites(ctx, writes, block(1), StateRecord{Height: 1}, nil, []FinalityProofRecord{first, second}); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []FinalityProofRecord{first, second} {
+		got, err := storage.FinalityProof(ctx, want.Header.Height)
+		if err != nil || !reflect.DeepEqual(got, want) {
+			t.Fatalf("proof %d: %+v, %v", want.Header.Height, got, err)
+		}
+	}
+	latest, err := storage.LatestFinalityProof(ctx)
+	if err != nil || latest.Header.Height != 8 {
+		t.Fatalf("latest proof is %d, %v; want the last the commit carried", latest.Header.Height, err)
 	}
 }

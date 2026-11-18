@@ -525,7 +525,7 @@ func TestWALEventsRoundTripEveryField(t *testing.T) {
 		log = append(log, walRecord(t, event)...)
 	}
 	var replayed []WALEvent
-	valid, err := scanWAL(bytes.NewReader(log), int64(len(log)), func(event WALEvent) { replayed = append(replayed, event) })
+	valid, err := scanWAL(bytes.NewReader(log), int64(len(log)), func(record []WALEvent) { replayed = append(replayed, record...) })
 	if err != nil || valid != int64(len(log)) {
 		t.Fatalf("expected the whole log of %d bytes to read, got %d bytes and %v", len(log), valid, err)
 	}
@@ -598,6 +598,14 @@ func FuzzScanWAL(f *testing.F) {
 		}
 		full = append(full, record...)
 	}
+	group, err := appendWALRecord(nil,
+		WALEvent{Type: WALEventSafetyState, Time: walTestTime, Height: state.LastVotedHeight, Round: state.LastVotedRound, Safety: &state},
+		walVoteEvent(1),
+	)
+	if err != nil {
+		f.Fatal(err)
+	}
+	full = append(full, group...)
 	f.Add(full)
 	f.Add(full[:len(full)-3])
 	f.Add(full[:len(walHeader)+5])
@@ -606,8 +614,8 @@ func FuzzScanWAL(f *testing.F) {
 	f.Add([]byte{})
 	f.Add([]byte("0f1e2d3c {\"type\":\"vote\"}\n"))
 	f.Fuzz(func(t *testing.T, data []byte) {
-		var events []WALEvent
-		valid, err := scanWAL(bytes.NewReader(data), int64(len(data)), func(event WALEvent) { events = append(events, event) })
+		var records [][]WALEvent
+		valid, err := scanWAL(bytes.NewReader(data), int64(len(data)), func(record []WALEvent) { records = append(records, record) })
 		if err != nil {
 			return
 		}
@@ -615,20 +623,23 @@ func FuzzScanWAL(f *testing.F) {
 			t.Fatalf("the valid prefix of %d bytes lies outside the log of %d bytes", valid, len(data))
 		}
 		if valid == 0 {
-			if len(events) != 0 {
-				t.Fatalf("a log without records returned %d events", len(events))
+			if len(records) != 0 {
+				t.Fatalf("a log without records returned %d records", len(records))
 			}
 			return
 		}
 		prefix := data[:valid]
-		var again []WALEvent
-		validAgain, err := scanWAL(bytes.NewReader(prefix), valid, func(event WALEvent) { again = append(again, event) })
-		if err != nil || validAgain != valid || !reflect.DeepEqual(again, events) {
-			t.Fatalf("the valid prefix of a log must read as itself: %d bytes %v, %d events and %d events", validAgain, err, len(again), len(events))
+		var again [][]WALEvent
+		validAgain, err := scanWAL(bytes.NewReader(prefix), valid, func(record []WALEvent) { again = append(again, record) })
+		if err != nil || validAgain != valid || !reflect.DeepEqual(again, records) {
+			t.Fatalf("the valid prefix of a log must read as itself: %d bytes %v, %d records and %d records", validAgain, err, len(again), len(records))
 		}
 		rebuilt := slices.Clone(walHeader)
-		for _, event := range events {
-			rebuilt, err = appendWALRecord(rebuilt, event)
+		for _, record := range records {
+			if len(record) == 0 {
+				t.Fatal("a record without events was accepted")
+			}
+			rebuilt, err = appendWALRecord(rebuilt, record...)
 			if err != nil {
 				t.Fatalf("an event read from a log does not encode: %v", err)
 			}

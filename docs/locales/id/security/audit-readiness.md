@@ -72,6 +72,10 @@ Materi audit harus mencakup VRF adapter audit evidence selain BLS. Pin SHA-256 f
 
 Setiap event tx atau batch yang diterima sudah tahan lama sebelum pengirimannya kembali. Record berbentuk `uvarint(length) | op | payload | CRC-32C`; admission yang bersamaan berbagi satu fsync (group commit), dan node menunggunya tanpa memegang lock admission. Replay memotong record terakhir yang robek atau rusak dan menolak log yang rusak sebelum akhirnya (`ErrWALCorrupt`). Setelah kegagalan I/O, append berhenti sampai log ditulis ulang dari pool. WAL konsensus memakai framing yang sama (panjang big-endian 4 byte, payload, CRC-32C 4 byte): ekor yang robek dipotong, kerusakan di tengah ditolak.
 
+## Record grup consensus WAL dan ketahanan penghapusan mempool
+
+Sebuah vote dan safety state yang dituju mesin karenanya membentuk satu record grup, ditulis dengan satu fsync dan dipulihkan utuh atau dibuang utuh. Record proposal tidak memakai fsync sendiri dan ditulis bersama vote proposer, sebelum proposal meninggalkan node. Record penghapusan mempool dari blok yang di-commit sudah durable sebelum blok berikutnya di-commit; restart mengulang penghapusan untuk blok terakhir yang di-commit.
+
 <!-- vexo-docs:technical-parity -->
 ## Lampiran Paritas Teknis
 

@@ -124,6 +124,14 @@ func (dag *DAG) MarkCommitted(ctx context.Context, txs []types.Tx) error {
 	return ticket.wait(ctx)
 }
 
+// QueueMarkCommitted removes the committed transactions like MarkCommitted but returns as soon as
+// the removal's record is queued; the returned Durable reports when it is durable. The
+// transactions are out of the pool when QueueMarkCommitted returns.
+func (dag *DAG) QueueMarkCommitted(ctx context.Context, txs []types.Tx) (Durable, error) {
+	ticket, err := dag.markCommittedQueued(ctx, txs)
+	return Durable{ticket: ticket}, err
+}
+
 func (dag *DAG) markCommittedQueued(ctx context.Context, txs []types.Tx) (walTicket, error) {
 	dag.mu.Lock()
 	defer dag.mu.Unlock()

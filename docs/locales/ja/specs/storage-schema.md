@@ -109,6 +109,10 @@ state history は key ごとのバージョンの undo log です。key があ�
 
 commit は mempool WAL が 4 MiB 以上で、かつ最後の compaction(または open)直後の大きさの二倍以上になったときだけ log を compaction します。そのため append されたバイトは平均でおよそ一度だけ書き直され、再起動時に replay する log は live な内容の二倍か 4 MiB 以内に収まります。明示的な compaction(`Node.Compact`、または起動時に application が拒否した replay tx を捨てる場合)は常に書き直します。`InitChain` はすべての module の genesis state を一つの batch で書くため、アカウントの多い genesis でも durable write は一回で済み、失敗した genesis は store に何も残しません。
 
+## Commit batch 内の finality proof と遅延した mempool 除去
+
+node の commit 経路は、block の QC が完成させる finality proof を block/state/app-write batch に一緒に書きます(`CommitBlockStateWithWrites` の最後の引数)。そのため commit は proof ごとに durable write を一つ増やさず、一回で済みます。store が拒否する proof は batch から外され、commit 後の処理が保存して失敗を報告します。commit は自分の tx を pool から除去し、除去 record を sync を待たずに queue に入れます。次の commit は自分の block を実行する前に、その record が durable になるまで待ちます。再起動は最後に commit された block の除去だけをやり直すからです。除去 record は通常、後続の admission の sync に相乗りします。
+
 <!-- vexo-docs:technical-parity -->
 ## 技術的同等性付録
 

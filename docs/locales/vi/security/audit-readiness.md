@@ -72,6 +72,10 @@ Hồ sơ audit phải có VRF adapter audit evidence ngoài BLS. Pin SHA-256 c�
 
 Mọi sự kiện tx hoặc batch được chấp nhận đều bền vững trước khi lệnh gửi trả về. Bản ghi có dạng `uvarint(length) | op | payload | CRC-32C`; các lần nhận đồng thời dùng chung một fsync (group commit), và node chờ nó mà không giữ khóa nhận. Replay cắt bỏ bản ghi cuối bị rách hoặc hỏng và từ chối log hỏng trước phần cuối (`ErrWALCorrupt`). Sau lỗi I/O, việc ghi thêm dừng cho đến khi log được ghi lại từ pool. WAL đồng thuận dùng cùng cách đóng khung (độ dài big-endian 4 byte, payload, CRC-32C 4 byte): đuôi bị rách được cắt, hỏng ở giữa bị từ chối.
 
+## Record nhóm của consensus WAL và độ bền của việc xóa khỏi mempool
+
+Một vote và safety state mà nó đưa máy trạng thái tới tạo thành một record nhóm, được ghi bằng một lần fsync và khi khôi phục thì được giữ trọn vẹn hoặc bỏ trọn vẹn. Record proposal không tốn fsync riêng mà được ghi cùng vote của proposer, trước khi proposal rời khỏi node. Record xóa khỏi mempool của block đã commit trở nên durable trước khi block kế tiếp được commit; khi khởi động lại, node làm lại việc xóa cho block được commit cuối cùng.
+
 <!-- vexo-docs:technical-parity -->
 ## Phụ lục tương đương kỹ thuật
 

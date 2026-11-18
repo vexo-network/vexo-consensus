@@ -306,7 +306,7 @@ func TestRuntimeExecuteCertifiedBlockPersistsQuorumCert(t *testing.T) {
 		Signers:     finality.EncodeSigners([]types.ValidatorID{"a"}),
 		VotingPower: 1,
 	}
-	if _, err := runtime.ExecuteCertifiedBlock(context.Background(), block, qc); err != nil {
+	if _, err := runtime.ExecuteCertifiedBlock(context.Background(), block, qc, nil); err != nil {
 		t.Fatal(err)
 	}
 	record, err := runtime.BlockByHeight(context.Background(), 1)

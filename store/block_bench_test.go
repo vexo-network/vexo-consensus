@@ -60,7 +60,7 @@ func BenchmarkCommitBlockLikeTheRuntime(b *testing.B) {
 		var hash types.Hash
 		binary.BigEndian.PutUint64(hash[:], uint64(height))
 		block := BlockRecord{Block: types.Block{Header: types.Header{Height: height}}, Hash: hash}
-		if err := storage.CommitBlockStateWithWrites(ctx, writes, block, StateRecord{Height: height}, roots); err != nil {
+		if err := storage.CommitBlockStateWithWrites(ctx, writes, block, StateRecord{Height: height}, roots, nil); err != nil {
 			b.Fatal(err)
 		}
 	}

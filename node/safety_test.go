@@ -3,13 +3,18 @@ package node
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/vexo-network/vexo-consensus/consensus"
 	"github.com/vexo-network/vexo-consensus/finality"
+	"github.com/vexo-network/vexo-consensus/mempool"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
+	"github.com/vexo-network/vexo-consensus/validator"
 )
 
 // proposeAndVote makes the single validator of the test genesis propose a block in the machine's
@@ -504,6 +509,39 @@ func (proofStore *failingProofStore) SaveFinalityProof(ctx context.Context, reco
 	return proofStore.PebbleStore.SaveFinalityProof(ctx, record)
 }
 
+// postCommitFailingRegistry fails the first lookups of a validator set made once the block at
+// failAt is committed, which only the steps that follow the commit make, and counts those lookups.
+type postCommitFailingRegistry struct {
+	validator.VersionedRegistry
+	committed func() types.Height
+	failAt    types.Height
+	mu        sync.Mutex
+	failures  int
+	calls     int
+}
+
+func (registry *postCommitFailingRegistry) ValidatorSet(ctx context.Context, height types.Height) (validator.Set, error) {
+	if registry.committed() >= registry.failAt {
+		registry.mu.Lock()
+		registry.calls++
+		fail := registry.failures > 0
+		if fail {
+			registry.failures--
+		}
+		registry.mu.Unlock()
+		if fail {
+			return nil, errors.New("disk full")
+		}
+	}
+	return registry.VersionedRegistry.ValidatorSet(ctx, height)
+}
+
+func (registry *postCommitFailingRegistry) lookups() int {
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+	return registry.calls
+}
+
 func TestReconcileFinishesCommitAfterPostExecutionFailure(t *testing.T) {
 	ctx := context.Background()
 	node := newStartedValidator(t, t.TempDir())
@@ -516,8 +554,16 @@ func TestReconcileFinishesCommitAfterPostExecutionFailure(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected a Pebble store, got %T", runtime.Store)
 	}
-	flaky := &failingProofStore{PebbleStore: pebbleStore, failures: 1}
-	runtime.Store = flaky
+	flaky := &postCommitFailingRegistry{
+		VersionedRegistry: runtime.Validators,
+		committed: func() types.Height {
+			committed, _ := node.currentCommitHeight(ctx)
+			return committed
+		},
+		failAt:   1,
+		failures: 1,
+	}
+	runtime.Validators = flaky
 
 	proposeAndVote(t, node)
 	proposeAndVote(t, node)
@@ -527,8 +573,9 @@ func TestReconcileFinishesCommitAfterPostExecutionFailure(t *testing.T) {
 	if committed, _ := node.currentCommitHeight(ctx); committed != 1 {
 		t.Fatalf("expected the block to be durable, committed height is %d", committed)
 	}
-	if _, err := pebbleStore.FinalityProof(ctx, 1); !errors.Is(err, store.ErrFinalityNotFound) {
-		t.Fatalf("expected the finality proof to be missing after the failure, got %v", err)
+	// The finality proof the certificate completed is durable with the block.
+	if _, err := pebbleStore.FinalityProof(ctx, 1); err != nil {
+		t.Fatalf("expected the finality proof stored with the block, got %v", err)
 	}
 	if node.reconciledHeight != 0 {
 		t.Fatalf("expected the failed commit not to count as reconciled, got %d", node.reconciledHeight)
@@ -541,17 +588,14 @@ func TestReconcileFinishesCommitAfterPostExecutionFailure(t *testing.T) {
 	if node.reconciledHeight != 1 {
 		t.Fatalf("expected the step to finish the commit, reconciled height is %d", node.reconciledHeight)
 	}
-	if _, err := pebbleStore.FinalityProof(ctx, 1); err != nil {
-		t.Fatalf("expected the reconcile to store the finality proof: %v", err)
-	}
-	savesAfterReconcile := flaky.saves
+	lookupsAfterReconcile := flaky.lookups()
 
 	// A reconciled height is not reconciled again.
 	if err := node.reconcileCommitted(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if flaky.saves != savesAfterReconcile {
-		t.Fatalf("expected no repeated work for a reconciled height, saves %d -> %d", savesAfterReconcile, flaky.saves)
+	if got := flaky.lookups(); got != lookupsAfterReconcile {
+		t.Fatalf("expected no repeated work for a reconciled height, lookups %d -> %d", lookupsAfterReconcile, got)
 	}
 }
 
@@ -573,8 +617,12 @@ func TestPersistFinalityDecisionsSkipsStoredHeights(t *testing.T) {
 	if _, committed, err := node.CommitFinalizedBlock(ctx); err != nil || !committed {
 		t.Fatalf("expected B1 to commit, committed=%t err=%v", committed, err)
 	}
-	if node.finalityPersisted != 1 || counting.saves != 1 {
-		t.Fatalf("expected the proof of B1 to be stored once, mark=%d saves=%d", node.finalityPersisted, counting.saves)
+	// The proof of B1 is stored with B1, in the commit's one write, not by a save of its own.
+	if node.finalityPersisted != 1 || counting.saves != 0 {
+		t.Fatalf("expected the proof of B1 stored with its block, mark=%d saves=%d", node.finalityPersisted, counting.saves)
+	}
+	if _, err := pebbleStore.FinalityProof(ctx, 1); err != nil {
+		t.Fatalf("expected the proof of B1 in the store: %v", err)
 	}
 
 	// The decision for B1 is still held by the machine until B2 is committed.
@@ -586,7 +634,7 @@ func TestPersistFinalityDecisionsSkipsStoredHeights(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if counting.saves != 1 {
+	if counting.saves != 0 {
 		t.Fatalf("expected the stored decision not to be processed again, saves=%d", counting.saves)
 	}
 }
@@ -783,5 +831,52 @@ func TestValidatorRefusesToVoteForABlockFromTheFuture(t *testing.T) {
 	}
 	if err := node.processProposal(ctx, proposal); err != nil {
 		t.Fatalf("expected a block within the drift to be accepted, got %v", err)
+	}
+}
+
+// A commit makes the mempool removal of the previous block's transactions durable before its own
+// block is, because a restart repeats the removal for the last committed block alone.
+func TestCommitSettlesThePreviousBlocksMempoolRemoval(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	node := newTestNodeWithDataDir(t, dataDir)
+	node.cfg.ValidatorID = "alice"
+	walPath := filepath.Join(dataDir, "mempool.wal")
+	node.cfg.Chain.Mempool.WALPath = walPath
+	startNode(t, node)
+	defer node.Stop(ctx)
+	tx := types.Tx("bank:settled-removal")
+	if err := node.SubmitTx(ctx, tx); err != nil {
+		t.Fatal(err)
+	}
+	proposeAndVote(t, node, tx)
+	proposeAndVote(t, node)
+	if _, committed, err := node.CommitFinalizedBlock(ctx); err != nil || !committed {
+		t.Fatalf("expected B1 to commit, committed=%t err=%v", committed, err)
+	}
+	proposeAndVote(t, node)
+	if _, committed, err := node.CommitFinalizedBlock(ctx); err != nil || !committed {
+		t.Fatalf("expected B2 to commit, committed=%t err=%v", committed, err)
+	}
+
+	// The log as a crash now would leave it: what was written to the file.
+	data, err := os.ReadFile(walPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	crashed := filepath.Join(t.TempDir(), "mempool.wal")
+	if err := os.WriteFile(crashed, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	replayed, err := mempool.OpenDurableDAG(ctx, crashed, mempool.NewFIFO(mempool.FIFOConfig{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending, err := replayed.PendingTxs(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 0 {
+		t.Fatalf("expected the removal of B1's transaction durable once B2 committed, replayed %q", pending)
 	}
 }

@@ -1920,6 +1920,7 @@ func commitTestEVMState(t *testing.T, storage *store.PebbleStore, height types.H
 		store.BlockRecord{Block: types.Block{Header: types.Header{Height: height}}, Hash: types.Hash{byte(height), 0xe7}},
 		store.StateRecord{Height: height},
 		nil,
+		nil,
 	); err != nil {
 		t.Fatal(err)
 	}

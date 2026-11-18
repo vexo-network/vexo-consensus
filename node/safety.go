@@ -115,29 +115,22 @@ func restoreSafetyState(machine *consensus.StateMachine, wal *consensus.WAL, com
 	return machine.RestoreSafetyState(state)
 }
 
-// recordTimeoutSafety makes the validator give up voting in the view it times out in, and persists
-// that before the timeout vote is signed. A validator that timed out in a view and then voted in it
-// would let a certificate form that the timeout certificate of the view does not account for.
-func (node *Node) recordTimeoutSafety(machine *consensus.StateMachine, vote consensus.TimeoutVote) error {
+// leaveTimedOutView makes the validator give up voting in the view it times out in. The caller
+// persists the resulting safety state with the timeout vote before the vote leaves the validator. A
+// validator that timed out in a view and then voted in it would let a certificate form that the
+// timeout certificate of the view does not account for.
+func leaveTimedOutView(machine *consensus.StateMachine, vote consensus.TimeoutVote) error {
 	state := machine.SafetyState()
-	if state.LastVotedHeight == 0 || vote.Round > state.LastVotedRound {
-		if vote.Height > state.LastVotedHeight {
-			state.LastVotedHeight = vote.Height
-		}
-		if vote.Round > state.LastVotedRound {
-			state.LastVotedRound = vote.Round
-		}
-		if err := machine.RestoreSafetyState(state); err != nil {
-			return err
-		}
-	}
-	node.mu.Lock()
-	wal := node.consensusWAL
-	node.mu.Unlock()
-	if wal == nil {
+	if state.LastVotedHeight != 0 && vote.Round <= state.LastVotedRound {
 		return nil
 	}
-	return wal.RecordSafetyState(machine.SafetyState())
+	if vote.Height > state.LastVotedHeight {
+		state.LastVotedHeight = vote.Height
+	}
+	if vote.Round > state.LastVotedRound {
+		state.LastVotedRound = vote.Round
+	}
+	return machine.RestoreSafetyState(state)
 }
 
 // nextHeightAfter returns height+1, or false when it would overflow.
@@ -210,6 +203,24 @@ func (node *Node) reconcileCommitted(ctx context.Context) error {
 	return node.finishCommit(ctx, runtime, machine, record.Block, quorumCert)
 }
 
+// settleCommittedMark waits until the mempool removal of the last committed block's transactions is
+// durable, which a commit must see before its block becomes durable: a restart repeats the removal
+// for the last committed block alone. The removal usually shares the sync of a later admission and
+// is durable already. A log the removal could not be written to is rewritten from the pool, which
+// no longer holds the transactions. The caller holds commitMu.
+func (node *Node) settleCommittedMark(ctx context.Context, runtime *vexoruntime.Runtime) error {
+	if err := node.committedMark.Wait(ctx); err != nil {
+		if ctx.Err() != nil {
+			return err
+		}
+		if err := runtime.Mempool.CompactWAL(ctx); err != nil {
+			return err
+		}
+	}
+	node.committedMark = mempool.Durable{}
+	return nil
+}
+
 func (node *Node) isReconciled(committed types.Height) bool {
 	node.mu.Lock()
 	defer node.mu.Unlock()
@@ -221,9 +232,14 @@ func (node *Node) isReconciled(committed types.Height) bool {
 // that was executed without a certificate.
 func (node *Node) finishCommit(ctx context.Context, runtime *vexoruntime.Runtime, machine *consensus.StateMachine, block types.Block, quorumCert *finality.QuorumCert) error {
 	height := block.Header.Height
-	if err := runtime.Mempool.MarkCommitted(ctx, block.Txs); err != nil {
+	// The removal is made durable by the next commit (settleCommittedMark), not here: until then a
+	// restart repeats this step for this block, the last committed one, so the commit path does not
+	// wait for a sync of its own.
+	mark, err := runtime.Mempool.QueueMarkCommitted(ctx, block.Txs)
+	if err != nil {
 		return err
 	}
+	node.committedMark = mark
 	if service := node.laneService(); service != nil {
 		service.Committed(consensus.HashBlock(block), height, block.Txs)
 	}

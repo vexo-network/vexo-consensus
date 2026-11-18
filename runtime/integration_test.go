@@ -848,7 +848,7 @@ type failingAppCommitStore struct {
 	attempted *[]store.KVWrite
 }
 
-func (failing failingAppCommitStore) CommitBlockStateWithWrites(ctx context.Context, writes []store.KVWrite, block store.BlockRecord, state store.StateRecord, roots []store.StateRootRecord) error {
+func (failing failingAppCommitStore) CommitBlockStateWithWrites(ctx context.Context, writes []store.KVWrite, block store.BlockRecord, state store.StateRecord, roots []store.StateRootRecord, proofs []store.FinalityProofRecord) error {
 	if failing.attempted != nil {
 		*failing.attempted = append(*failing.attempted, writes...)
 	}
