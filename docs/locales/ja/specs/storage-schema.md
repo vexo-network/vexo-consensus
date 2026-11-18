@@ -101,6 +101,10 @@
 
 - `pebble: database "<dir>" was written in format major version 1, which is no longer supported`
 
+## State history(undo log)と tree cache
+
+state history は key ごとのバージョンの undo log です。key がある高さで変わると(ブロックの書き込みはその高さ、最初の committed state 以降の直接書き込み(`Set`、`Delete`、`SetBatch`)は次の committed の高さ)、store は key がそれ以前に持っていた値(不在を含む)をその高さのバージョンとして、key と高さごとに一度記録します。その高さを commit するブロックより前の直接書き込みは、最初のものが記録したバージョンを保ちます(`hdirect` がその高さを示します)。committed の高さでの key の値は、その高さより上の最も低いバージョンが記録した値で、そのようなバージョンがなければ現在の値です。変更の記録は key の現在の値だけを読み history は読まず、過去の読み出しは key のバージョンへの seek 一回です。`PruneBelow` は保持開始の高さ以下のバージョンをすべて削除します。tree node も同じ方法でバージョンを残します。二つのメモリ上の構造がブロックの tree 処理を減らし、どちらも永続化されず結果を変えません: 現在の tree のエンコード済み node を最大 2^18 個保持する tree node cache(store が commit するすべての batch が更新し、batch の commit 中は奇数になる generation により、reader は自分の snapshot の状態でのみ cache を使います)と、namespace ごとに最後の root 計算の root と node 変更をその generation と namespace の書き込みの SHA-256 digest で保持し、app hash、state root、commit が同じ書き込みを一度だけ計算するようにする構造です。
+
 <!-- vexo-docs:technical-parity -->
 ## 技術的同等性付録
 

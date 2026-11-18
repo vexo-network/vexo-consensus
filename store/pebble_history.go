@@ -13,85 +13,94 @@ import (
 
 // State history.
 //
-// Every change to a key after the chain's first committed state is recorded as
-// a version of that key at the height whose state it belongs to: a committed
-// block's writes at its height, a direct write at the height of the next
-// committed state. The first change of a key also records the value the key
-// held before it, as its version at height 0. So for every height with a
-// committed state record, the value of a key at that height is:
+// History is an undo log. When a key changes at a height (a committed block's
+// writes at its height, a direct write after the first committed state at the
+// height of the next committed state), the store records the value the key held
+// before, absent included, as the key's version at that height, once per key and
+// height. So for every height with a committed state record, the value of a key
+// at that height is:
 //
-//   - the value of its highest version at or below the height, when it has a
-//     version there (a deleted version means absent);
-//   - absent, when it has versions but none at or below the height (the key was
-//     deleted by a pruned version);
-//   - its current value, when it has no version at all (it never changed since
-//     the base state: genesis, or the namespace an import installed).
+//   - the value its lowest version above the height records, when it has one
+//     (a deleted version means absent): the key's first change after the height
+//     recorded what it held then;
+//   - its current value, when it has none: it has not changed since.
 //
-// The store therefore keeps one copy of the state plus one version per change;
-// historical reads never need full copies of a namespace.
+// Recording a change reads only the key's current value, never its history, and
+// a read is one seek into the key's versions. The store keeps one copy of the
+// state plus one version per change; historical reads never need full copies of
+// a namespace.
 
 // historyBatch records the versions of the writes one batch applies.
 type historyBatch struct {
-	store    *PebbleStore
-	batch    *pebble.Batch
-	height   types.Height
-	baseline map[string]struct{}
+	store  *PebbleStore
+	batch  *pebble.Batch
+	height types.Height
+	// existing reports that versions at height may already be stored: direct writes at height
+	// committed before this batch. A stored version holds the value before the first of them and
+	// is kept.
+	existing bool
+	recorded map[string]struct{}
 }
 
-func newHistoryBatch(store *PebbleStore, batch *pebble.Batch, height types.Height) *historyBatch {
-	return &historyBatch{store: store, batch: batch, height: height, baseline: make(map[string]struct{})}
+func newHistoryBatch(store *PebbleStore, batch *pebble.Batch, height types.Height, existing bool) *historyBatch {
+	return &historyBatch{store: store, batch: batch, height: height, existing: existing, recorded: make(map[string]struct{})}
 }
 
-// record adds the version write makes, and the key's version at height 0 when
-// this is its first change.
+// record adds the version of the key write changes: the value it holds before the batch, once per
+// key.
 func (history *historyBatch) record(write KVWrite) error {
 	prefix := kvHistoryPrefixKey(write.Namespace, write.Key)
-	if _, done := history.baseline[string(prefix)]; !done {
-		history.baseline[string(prefix)] = struct{}{}
-		versioned, err := history.store.hasVersions(prefix)
-		if err != nil {
+	if _, done := history.recorded[string(prefix)]; done {
+		return nil
+	}
+	history.recorded[string(prefix)] = struct{}{}
+	versionKey := kvHistoryKey(history.height, write.Namespace, write.Key)
+	if history.existing {
+		found, err := hasKey(history.store.db, versionKey)
+		if err != nil || found {
 			return err
 		}
-		if !versioned {
-			prior := kvHistoryRecord{Height: 0, Namespace: write.Namespace, Key: append([]byte(nil), write.Key...)}
-			value, err := getValue(history.store.db, kvKey(write.Namespace, write.Key))
-			switch {
-			case errors.Is(err, pebble.ErrNotFound):
-				prior.Deleted = true
-			case err != nil:
-				return err
-			default:
-				prior.Value = append([]byte(nil), value...)
-			}
-			if err := history.put(prior); err != nil {
-				return err
-			}
-		}
 	}
-	return history.put(kvHistoryRecord{
-		Height:    history.height,
-		Namespace: write.Namespace,
-		Key:       append([]byte(nil), write.Key...),
-		Value:     append([]byte(nil), write.Value...),
-		Deleted:   write.Delete,
-	})
+	prior := kvHistoryRecord{Height: history.height, Namespace: write.Namespace, Key: append([]byte(nil), write.Key...)}
+	value, err := getValue(history.store.db, kvKey(write.Namespace, write.Key))
+	switch {
+	case errors.Is(err, pebble.ErrNotFound):
+		prior.Deleted = true
+	case err != nil:
+		return err
+	default:
+		prior.Value = value
+	}
+	putVersion(history.batch, kvVersionIndexPrefix, versionKey, history.height, encodeKVHistoryRecord(prior))
+	return nil
 }
 
-func (history *historyBatch) put(record kvHistoryRecord) error {
-	encoded := encodeKVHistoryRecord(record)
-	putVersion(history.batch, kvVersionIndexPrefix, kvHistoryKey(record.Height, record.Namespace, record.Key), record.Height, encoded)
-	return nil
+// historyDirectHeightKey holds the height of the last direct writes that recorded versions, so the
+// block that commits that height keeps the versions they recorded.
+var historyDirectHeightKey = []byte("hdirect")
+
+// directWritesAt reports whether direct writes recorded versions at height.
+func (store *PebbleStore) directWritesAt(height types.Height) (bool, error) {
+	encoded, err := getValue(store.db, historyDirectHeightKey)
+	if errors.Is(err, pebble.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if len(encoded) != 8 {
+		return false, ErrInvalidStateRecord
+	}
+	return types.Height(binary.BigEndian.Uint64(encoded)) == height, nil
 }
 
 // Version index.
 //
 // Every version is also listed under its height in a version index (kvVersionIndexPrefix for the
-// versions of keys, stateTreeVersionIndexPrefix for those of tree nodes), so pruning visits the
-// versions below the height it retains from, not every version. A version a prune keeps, because
-// the heights from retainFrom on still read it, is listed again under the last height it is read
-// at, below the version that replaces it, so each version is visited at most twice whatever the
-// size of the history. Versions dropped with their namespace (an import) leave entries that the
-// next prune drops.
+// versions of keys, stateTreeVersionIndexPrefix for those of tree nodes). A version is read only
+// by the heights below it, so a prune that retains from a height drops exactly the versions listed
+// at or below it, visiting each version once whatever the size of the history. Versions dropped
+// with their namespace (an import) leave entries that the next prune drops.
 var (
 	kvVersionIndexPrefix        = []byte("hidx:")
 	stateTreeVersionIndexPrefix = []byte("tidx:")
@@ -108,13 +117,6 @@ func versionIndexKey(indexPrefix []byte, height types.Height, versionKey []byte)
 func putVersion(batch *pebble.Batch, indexPrefix []byte, versionKey []byte, height types.Height, value []byte) {
 	batch.Set(versionKey, value, nil)
 	batch.Set(versionIndexKey(indexPrefix, height, versionKey), nil, nil)
-}
-
-func (store *PebbleStore) hasVersions(prefix []byte) (bool, error) {
-	iterator := newIter(store.db, prefixRange(prefix))
-	defer iterator.Close()
-	found := iterator.First()
-	return found, iterator.Error()
 }
 
 // directWriteHeight is the height a direct write takes effect at: the height of
@@ -162,8 +164,8 @@ func (store *PebbleStore) applyDirectWrites(ctx context.Context, writes []KVWrit
 	}
 	batch := store.db.NewBatch()
 	defer batch.Close()
-	history := newHistoryBatch(store, batch, height)
-	trees := newStateTrees(store.db)
+	history := newHistoryBatch(store, batch, height, true)
+	trees := newStateTrees(store.db, store.liveTreeView())
 	for _, write := range writes {
 		if versioned {
 			if err := history.record(write); err != nil {
@@ -180,8 +182,11 @@ func (store *PebbleStore) applyDirectWrites(ctx context.Context, writes []KVWrit
 		}
 		batch.Set(key, append([]byte(nil), write.Value...), nil)
 	}
-	if err := trees.persist(batch, versioned, height); err != nil {
+	if err := trees.persist(batch, versioned, height, true); err != nil {
 		return err
+	}
+	if versioned {
+		batch.Set(historyDirectHeightKey, binary.BigEndian.AppendUint64(nil, uint64(height)), nil)
 	}
 	return store.writeBatch(batch)
 }
@@ -212,25 +217,18 @@ func historySeekKey(prefix []byte, height types.Height) ([]byte, bool) {
 	return append(key, buffer[:]...), true
 }
 
-// versionAt positions iterator, which ranges over the versions of one or more
-// keys, on the highest version of the key with prefix at or below height, and
-// reports whether there is one.
-func versionAt(iterator interface {
+// versionAbove positions iterator, which ranges over the versions of one or more
+// keys, on the lowest version of the key with prefix above height, and reports
+// whether there is one: that version records the key's value at height.
+func versionAbove(iterator interface {
 	SeekGE([]byte) bool
-	Prev() bool
-	Last() bool
 	Key() []byte
 }, prefix []byte, height types.Height) bool {
-	var positioned bool
-	if seek, ok := historySeekKey(prefix, height); ok && iterator.SeekGE(seek) {
-		positioned = iterator.Prev()
-	} else {
-		positioned = iterator.Last()
-	}
-	if !positioned {
+	seek, ok := historySeekKey(prefix, height)
+	if !ok || !iterator.SeekGE(seek) {
 		return false
 	}
-	_, ok := kvHistoryHeightFromKey(prefix, iterator.Key())
+	_, ok = kvHistoryHeightFromKey(prefix, iterator.Key())
 	return ok
 }
 
@@ -273,7 +271,7 @@ func getAt(reader dbReader, height types.Height, namespace string, key []byte) (
 	prefix := kvHistoryPrefixKey(namespace, key)
 	iterator := newIter(reader, prefixRange(prefix))
 	defer iterator.Close()
-	if !iterator.First() {
+	if !versionAbove(iterator, prefix, height) {
 		if err := iterator.Error(); err != nil {
 			return nil, err
 		}
@@ -284,13 +282,7 @@ func getAt(reader dbReader, height types.Height, namespace string, key []byte) (
 		if err != nil {
 			return nil, err
 		}
-		return append([]byte(nil), value...), nil
-	}
-	if !versionAt(iterator, prefix, height) {
-		if err := iterator.Error(); err != nil {
-			return nil, err
-		}
-		return nil, ErrKeyNotFound
+		return value, nil
 	}
 	record, err := decodeHistoryRecord(prefix, iterator.Key(), iterator.Value(), namespace)
 	if err != nil {
@@ -349,8 +341,8 @@ func (store *PebbleStore) ExportRangeAt(ctx context.Context, height types.Height
 // was at height whose key sorts after after (every key for nil after), until emit returns false.
 //
 // It merges two streams that are both in key order: the version groups of the keys that ever
-// changed, whose value at height is their highest version at or below it, and the current pairs,
-// which hold the value of every key that never changed.
+// changed, whose value at height is their lowest version above it when they have one, and the
+// current pairs, which hold the value of every other key.
 func (store *PebbleStore) historicalPairs(ctx context.Context, height types.Height, namespace string, keyPrefix []byte, after []byte, emit func(KVPair) bool) error {
 	select {
 	case <-ctx.Done():
@@ -383,10 +375,13 @@ func (store *PebbleStore) historicalPairs(ctx context.Context, height types.Heig
 	defer current.Close()
 	currentPrefix := len(kvNamespacePrefix(namespace))
 
+	// versioned is the value of a key with versions at height: the one a version records, or the
+	// current one when no version is above height.
 	type versioned struct {
 		key     []byte
 		value   []byte
 		present bool
+		current bool
 	}
 	nextVersioned := func(valid bool) (versioned, bool, error) {
 		if !valid {
@@ -396,14 +391,13 @@ func (store *PebbleStore) historicalPairs(ctx context.Context, height types.Heig
 		if !ok {
 			return versioned{}, false, ErrInvalidStateRecord
 		}
-		entry := versioned{key: key}
-		if versionAt(history, group, height) {
+		entry := versioned{key: key, current: true}
+		if versionAbove(history, group, height) {
 			record, err := decodeHistoryRecord(group, history.Key(), history.Value(), namespace)
 			if err != nil {
 				return versioned{}, false, err
 			}
-			entry.present = !record.Deleted
-			entry.value = record.Value
+			entry = versioned{key: key, value: record.Value, present: !record.Deleted}
 		}
 		history.SeekGE(nextHistoryKeyGroup(group))
 		return entry, true, nil
@@ -426,6 +420,9 @@ func (store *PebbleStore) historicalPairs(ctx context.Context, height types.Heig
 		}
 		if versionOK && (!currentOK || bytes.Compare(version.key, currentKey) <= 0) {
 			if currentOK && bytes.Equal(version.key, currentKey) {
+				if version.current {
+					version.value, version.present = append([]byte(nil), current.Value()...), true
+				}
 				currentOK = current.Next()
 			}
 			if version.present && !emit(KVPair{Namespace: namespace, Key: version.key, Value: version.value}) {
@@ -478,45 +475,32 @@ func nextHistoryKeyGroup(prefix []byte) []byte {
 	return next
 }
 
-// pruneHistoryBelow drops the versions no retained height can read. A key keeps
-// its versions from retainFrom on, plus its highest version below retainFrom
-// when that is a value and the key has no version at retainFrom itself, so the
-// heights from retainFrom to its next version still read it. A key whose
-// highest version below retainFrom is a deletion keeps none of them: having no
-// version at or below a height reads as absent. A key with no version from
-// retainFrom on keeps none at all: its current value is its value at every
-// retained height. Its cost is in the versions below retainFrom (see Version
-// index), not in the size of the history.
+// pruneHistoryBelow drops the versions no retained height can read. A version records a key's
+// value at the heights below it, so the heights from retainFrom on read only the versions above
+// retainFrom, and every version at or below it goes. Its cost is in the versions it drops (see
+// Version index), not in the size of the history.
 //
 // The versions of the state tree nodes are pruned by the same rule.
 func (store *PebbleStore) pruneHistoryBelow(ctx context.Context, batch *pebble.Batch, retainFrom types.Height) (uint64, uint64, error) {
-	pruned, err := store.pruneVersionsBelow(ctx, batch, kvVersionIndexPrefix, retainFrom, func(value []byte) (bool, error) {
-		record, err := decodeKVHistoryRecord(value)
-		if err != nil {
-			return false, err
-		}
-		return record.Deleted, nil
-	})
+	pruned, err := store.pruneVersionsBelow(ctx, batch, kvVersionIndexPrefix, retainFrom)
 	if err != nil {
 		return 0, 0, err
 	}
-	prunedNodes, err := store.pruneVersionsBelow(ctx, batch, stateTreeVersionIndexPrefix, retainFrom, func(value []byte) (bool, error) {
-		return len(value) == 0, nil
-	})
+	prunedNodes, err := store.pruneVersionsBelow(ctx, batch, stateTreeVersionIndexPrefix, retainFrom)
 	if err != nil {
 		return 0, 0, err
 	}
 	return pruned, prunedNodes, nil
 }
 
-// pruneVersionsBelow prunes the versions the version index under indexPrefix lists below
-// retainFrom. A version's database key is the prefix every version of its key shares followed by
-// its big-endian height; deleted reports whether a version is a deletion. A version is kept only
-// when it is the highest version of its key below retainFrom, a value, and followed by a version
-// above retainFrom: the heights from retainFrom up to that version read it. Without a following
-// version the current value is read, and a version at retainFrom replaces it.
-func (store *PebbleStore) pruneVersionsBelow(ctx context.Context, batch *pebble.Batch, indexPrefix []byte, retainFrom types.Height, deleted func([]byte) (bool, error)) (uint64, error) {
-	entries := newIter(store.db, keyRange{lower: indexPrefix, upper: versionIndexKey(indexPrefix, retainFrom, nil)})
+// pruneVersionsBelow drops the versions the version index under indexPrefix lists at or below
+// retainFrom, with their index entries, and returns how many versions it dropped.
+func (store *PebbleStore) pruneVersionsBelow(ctx context.Context, batch *pebble.Batch, indexPrefix []byte, retainFrom types.Height) (uint64, error) {
+	span := prefixRange(indexPrefix)
+	if retainFrom < math.MaxUint64 {
+		span.upper = versionIndexKey(indexPrefix, retainFrom+1, nil)
+	}
+	entries := newIter(store.db, span)
 	defer entries.Close()
 	var pruned uint64
 	for valid := entries.First(); valid; valid = entries.Next() {
@@ -531,28 +515,13 @@ func (store *PebbleStore) pruneVersionsBelow(ctx context.Context, batch *pebble.
 		}
 		batch.Delete(append([]byte(nil), entry...), nil)
 		versionKey := append([]byte(nil), entry[len(indexPrefix)+8:]...)
-		value, err := getValue(store.db, versionKey)
-		if errors.Is(err, pebble.ErrNotFound) {
+		found, err := hasKey(store.db, versionKey)
+		if err != nil {
+			return 0, err
+		}
+		if !found {
+			// Dropped with its namespace by an import.
 			continue
-		}
-		if err != nil {
-			return 0, err
-		}
-		group, height := versionKey[:len(versionKey)-8], types.Height(binary.BigEndian.Uint64(versionKey[len(versionKey)-8:]))
-		next, found, err := store.nextVersionHeight(group, height)
-		if err != nil {
-			return 0, err
-		}
-		if found && next > retainFrom {
-			isDeleted, err := deleted(value)
-			if err != nil {
-				return 0, err
-			}
-			if !isDeleted {
-				// Visited again by the first prune that retains from next on.
-				batch.Set(versionIndexKey(indexPrefix, next-1, versionKey), nil, nil)
-				continue
-			}
 		}
 		batch.Delete(versionKey, nil)
 		pruned++
@@ -561,23 +530,6 @@ func (store *PebbleStore) pruneVersionsBelow(ctx context.Context, batch *pebble.
 		return 0, err
 	}
 	return pruned, nil
-}
-
-// nextVersionHeight returns the height of the version of group that follows the one at height.
-func (store *PebbleStore) nextVersionHeight(group []byte, height types.Height) (types.Height, bool, error) {
-	if height == math.MaxUint64 {
-		return 0, false, nil
-	}
-	versions := newIter(store.db, prefixRange(group))
-	defer versions.Close()
-	if !versions.SeekGE(binary.BigEndian.AppendUint64(append([]byte(nil), group...), uint64(height)+1)) {
-		return 0, false, versions.Error()
-	}
-	key := versions.Key()
-	if len(key) != len(group)+8 {
-		return 0, false, ErrInvalidStateRecord
-	}
-	return types.Height(binary.BigEndian.Uint64(key[len(group):])), true, nil
 }
 
 // deleteNamespaceHistory drops every version of namespace.

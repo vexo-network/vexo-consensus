@@ -200,10 +200,11 @@ func TestPruneBelowDropsUnreadableVersionsAndKeepsRetainedState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// hot: versions 0..5 go (6 replaces them), settled: version 0 goes (2 is
-	// read by 6..8), gone: versions 0, 2 and the deletion at 4 go.
-	if result.PrunedStateVersions != 6+1+3 {
-		t.Fatalf("pruned %d versions, want 10", result.PrunedStateVersions)
+	// A version records the value below its height, so every version at or below
+	// 6 goes: hot's versions 1..6, settled's at 2 (its version at 9 records the
+	// value 6..8 read), and gone's at 2 and 4.
+	if result.PrunedStateVersions != 6+1+2 {
+		t.Fatalf("pruned %d versions, want 9", result.PrunedStateVersions)
 	}
 	for height, want := range before {
 		if got := pairsAt(t, store, height, "bank", ""); got != want {
@@ -220,10 +221,10 @@ func TestPruneBelowDropsUnreadableVersionsAndKeepsRetainedState(t *testing.T) {
 	if got := pairsAt(t, store, 10, "bank", ""); got != before[10] {
 		t.Fatalf("second prune changed height 10: %q, want %q", got, before[10])
 	}
-	// hot keeps only version 10; settled keeps none: its current value is its
-	// value at every retained height.
-	if second.PrunedStateVersions != 4+2 {
-		t.Fatalf("second prune dropped %d versions, want 6", second.PrunedStateVersions)
+	// hot's versions 7..10 and settled's at 9 go: no key changed above 10, so
+	// its current value is its value there.
+	if second.PrunedStateVersions != 4+1 {
+		t.Fatalf("second prune dropped %d versions, want 5", second.PrunedStateVersions)
 	}
 }
 

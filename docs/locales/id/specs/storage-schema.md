@@ -101,6 +101,10 @@ Pengenal terkait:
 
 - `pebble: database "<dir>" was written in format major version 1, which is no longer supported`
 
+## Riwayat state (undo log) dan cache pohon
+
+Riwayat state adalah undo log versi per key. Ketika sebuah key berubah pada suatu tinggi (tulisan blok pada tingginya, tulisan langsung (`Set`, `Delete`, `SetBatch`) setelah state committed pertama pada tinggi committed berikutnya), store mencatat nilai yang dimiliki key sebelumnya, termasuk ketiadaan, sebagai versi key pada tinggi itu, sekali per key dan tinggi; tulisan langsung sebelum blok yang meng-commit tingginya mempertahankan versi yang dicatat yang pertama (`hdirect` menunjuk tinggi itu). Nilai sebuah key pada tinggi committed adalah nilai yang dicatat versi terendahnya di atas tinggi itu, atau nilai saat ini bila tidak ada. Mencatat perubahan hanya membaca nilai key saat ini, tidak pernah riwayatnya, dan pembacaan historis adalah satu seek ke versi key. `PruneBelow` menghapus setiap versi pada atau di bawah tinggi awal yang dipertahankan. Node pohon diberi versi dengan cara yang sama. Dua struktur di memori mengurangi pekerjaan pohon per blok; keduanya tidak disimpan permanen dan tidak mengubah hasil: cache node pohon yang memuat hingga 2^18 node terenkode dari pohon saat ini (setiap batch store memperbaruinya, dan generation yang ganjil selama batch seperti itu di-commit membuat pembaca memakai cache hanya pada state snapshot-nya), dan per namespace, root dan perubahan node dari perhitungan root terakhir, dikunci oleh generation itu dan digest SHA-256 tulisan namespace, sehingga app hash, state roots, dan commit menghitung tulisan yang sama sekali saja.
+
 <!-- vexo-docs:technical-parity -->
 ## Lampiran Paritas Teknis
 

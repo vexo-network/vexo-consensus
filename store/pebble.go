@@ -36,6 +36,10 @@ type PebbleStore struct {
 	// direct writes, imports and pruning each read the history they extend.
 	writeMu   sync.Mutex
 	closeOnce sync.Once
+	// treeCache holds the nodes of the current state trees; see Tree node cache.
+	treeCache *treeNodeCache
+	// computed holds the last root computation of each namespace; see Computed trees.
+	computed *computedTrees
 }
 
 type PebbleOptions struct {
@@ -78,19 +82,47 @@ func OpenPebbleWithOptions(path string, options PebbleOptions) (*PebbleStore, er
 	if options.SyncWrites {
 		writeOptions = pebble.Sync
 	}
-	return &PebbleStore{db: db, writeOptions: writeOptions}, nil
+	return &PebbleStore{db: db, writeOptions: writeOptions, treeCache: newTreeNodeCache(), computed: newComputedTrees()}, nil
 }
 
+// writeBatch commits batch. Every write of the store goes through it, so the tree node cache sees
+// every change of a tree node.
 func (store *PebbleStore) writeBatch(batch *pebble.Batch) error {
-	return batch.Commit(store.writeOptions)
+	return store.treeCache.commit(batch, store.writeOptions)
 }
 
 func (store *PebbleStore) put(key []byte, value []byte) error {
-	return store.db.Set(key, value, store.writeOptions)
+	batch := store.db.NewBatch()
+	defer batch.Close()
+	batch.Set(key, value, nil)
+	return store.writeBatch(batch)
 }
 
 func (store *PebbleStore) delete(key []byte) error {
-	return store.db.Delete(key, store.writeOptions)
+	batch := store.db.NewBatch()
+	defer batch.Close()
+	batch.Delete(key, nil)
+	return store.writeBatch(batch)
+}
+
+// snapshot opens a snapshot of the store with the view of the tree node cache that matches it.
+func (store *PebbleStore) snapshot() (*pebble.Snapshot, treeCacheView) {
+	generation, stable := store.treeCache.stable()
+	snapshot := store.db.NewSnapshot()
+	if after, _ := store.treeCache.stable(); !stable || after != generation {
+		return snapshot, treeCacheView{}
+	}
+	return snapshot, treeCacheView{cache: store.treeCache, generation: generation}
+}
+
+// liveTreeView is the view of the tree node cache for reads of the database itself by a writer
+// that holds writeMu, so no batch that changes tree nodes commits while it reads.
+func (store *PebbleStore) liveTreeView() treeCacheView {
+	generation, stable := store.treeCache.stable()
+	if !stable {
+		return treeCacheView{}
+	}
+	return treeCacheView{cache: store.treeCache, generation: generation}
 }
 
 func (store *PebbleStore) IsNotFound(err error) bool {
@@ -526,14 +558,18 @@ func (store *PebbleStore) commitBlockStateBatch(ctx context.Context, writes []KV
 	defer store.writeMu.Unlock()
 	batch := store.db.NewBatch()
 	defer batch.Close()
-	history := newHistoryBatch(store, batch, state.Height)
-	trees := newStateTrees(store.db)
+	existing, err := store.directWritesAt(state.Height)
+	if err != nil {
+		return err
+	}
+	history := newHistoryBatch(store, batch, state.Height, existing)
+	trees := newStateTrees(store.db, store.liveTreeView())
+	if err := trees.applyNamespaces(store.computed, writes); err != nil {
+		return err
+	}
 	for _, write := range writes {
 		key := kvKey(write.Namespace, write.Key)
 		if err := history.record(write); err != nil {
-			return err
-		}
-		if err := trees.apply(write); err != nil {
 			return err
 		}
 		if write.Delete {
@@ -542,7 +578,7 @@ func (store *PebbleStore) commitBlockStateBatch(ctx context.Context, writes []KV
 		}
 		batch.Set(key, append([]byte(nil), write.Value...), nil)
 	}
-	if err := trees.persist(batch, true, state.Height); err != nil {
+	if err := trees.persist(batch, true, state.Height, existing); err != nil {
 		return err
 	}
 	batch.Set(blockHeightKey(block.Block.Header.Height), encodedBlock, nil)

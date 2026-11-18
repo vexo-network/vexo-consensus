@@ -69,7 +69,7 @@
     "specs/evm-native-accounting.md": "847b2c8408a1b78bcfa187d426a5dda2796b11444f60b8feb9c73f62b2cbda80",
     "specs/finality-proof-format.md": "41eebd199ea5da02faf3757c27afd3fd6598561a52953d8e08b10ba29e95738f",
     "specs/networking-spec.md": "c326f508d06be27085fbb72c0c99d369e91fedc2eafcc3dfe853a962d8ed03e7",
-    "specs/storage-schema.md": "90877c636dee7a06ea633f8bf41dd9d0c9fec987a64836a6ed5671aa95a43543",
+    "specs/storage-schema.md": "b8b2b576db6c4c20ca19661e35e01120c54d7d137ae348c5810be7124d5f7104",
     "specs/tx-format.md": "2927bb118da6b43bb347261627af55182ae8ce9b92aab421735bf994096b0406",
     "specs/validator-lifecycle.md": "2e1e7d823927b4fc3b07ef4bed6676af481b6bee801ca7c41b2be0226853d6e6"
   }

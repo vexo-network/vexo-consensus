@@ -101,6 +101,10 @@ Identificadores relacionados:
 
 - `pebble: database "<dir>" was written in format major version 1, which is no longer supported`
 
+## Histórico de estado (undo log) e cache da árvore
+
+O histórico de estado é um undo log de versões por chave. Quando uma chave muda numa altura (as escritas de um bloco na sua altura, uma escrita direta (`Set`, `Delete`, `SetBatch`) após o primeiro estado confirmado na próxima altura confirmada), o store registra o valor que a chave tinha antes, ausência incluída, como versão da chave nessa altura, uma vez por chave e altura; escritas diretas anteriores ao bloco que confirma sua altura mantêm a versão que a primeira registrou (`hdirect` indica essa altura). O valor de uma chave numa altura confirmada é o que registra sua versão mais baixa acima dessa altura, ou seu valor atual se não houver nenhuma. Registrar uma mudança só lê o valor atual da chave, nunca seu histórico, e uma leitura histórica é um seek nas versões da chave. `PruneBelow` apaga toda versão na altura a partir da qual retém ou abaixo dela. Os nós da árvore são versionados do mesmo modo. Duas estruturas em memória reduzem o trabalho de árvore de um bloco; nenhuma é persistida nem muda um resultado: o cache de nós da árvore, com até 2^18 nós codificados das árvores atuais (todo batch do store o atualiza, e uma geração ímpar enquanto tal batch é confirmado faz um leitor usar o cache só no estado do seu snapshot), e, por namespace, a raiz e as mudanças de nós do último cálculo de raiz, indexadas por essa geração e um digest SHA-256 das escritas do namespace, de modo que o app hash, as state roots e o commit calculam as mesmas escritas uma única vez.
+
 <!-- vexo-docs:technical-parity -->
 ## Apêndice de paridade técnica
 

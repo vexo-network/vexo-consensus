@@ -101,6 +101,10 @@ Identifiants associés :
 
 - `pebble: database "<dir>" was written in format major version 1, which is no longer supported`
 
+## Historique d'état (undo log) et cache de l'arbre
+
+L'historique d'état est un undo log de versions par clé. Quand une clé change à une hauteur (les écritures d'un bloc à sa hauteur, une écriture directe (`Set`, `Delete`, `SetBatch`) après le premier état validé à la hauteur validée suivante), le store enregistre la valeur que la clé avait avant, absence comprise, comme version de la clé à cette hauteur, une fois par clé et par hauteur ; les écritures directes antérieures au bloc qui valide leur hauteur gardent la version enregistrée par la première (`hdirect` désigne cette hauteur). La valeur d'une clé à une hauteur validée est celle qu'enregistre sa plus basse version au-dessus de cette hauteur, ou sa valeur actuelle s'il n'y en a pas. Enregistrer un changement ne lit que la valeur actuelle de la clé, jamais son historique, et une lecture historique est un seek dans les versions de la clé. `PruneBelow` supprime toute version à ou sous la hauteur à partir de laquelle il conserve. Les nœuds de l'arbre sont versionnés de la même façon. Deux structures en mémoire réduisent le travail d'arbre d'un bloc ; aucune n'est persistée ni ne change un résultat : le cache des nœuds de l'arbre, jusqu'à 2^18 nœuds encodés des arbres actuels (chaque batch du store le met à jour, et une génération impaire pendant la validation d'un tel batch ne laisse un lecteur utiliser le cache qu'à l'état de son snapshot), et, par namespace, la racine et les changements de nœuds du dernier calcul de racine, indexés par cette génération et un digest SHA-256 des écritures du namespace, si bien que l'app hash, les state roots et le commit ne calculent les mêmes écritures qu'une fois.
+
 <!-- vexo-docs:technical-parity -->
 ## Annexe de parité technique
 

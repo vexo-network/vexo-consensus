@@ -101,6 +101,10 @@ Zugehörige Bezeichner:
 
 - `pebble: database "<dir>" was written in format major version 1, which is no longer supported`
 
+## Zustandshistorie (Undo-Log) und Tree-Cache
+
+Die Zustandshistorie ist ein Undo-Log von Versionen je Schlüssel. Ändert sich ein Schlüssel bei einer Höhe (die Schreibvorgänge eines Blocks bei seiner Höhe, ein direkter Schreibvorgang (`Set`, `Delete`, `SetBatch`) nach dem ersten committeten Zustand bei der nächsten committeten Höhe), speichert der Store den Wert, den der Schlüssel davor hatte, Abwesenheit eingeschlossen, als Version des Schlüssels bei dieser Höhe, einmal je Schlüssel und Höhe; direkte Schreibvorgänge vor dem Block, der ihre Höhe committet, behalten die Version, die der erste von ihnen gespeichert hat (`hdirect` nennt diese Höhe). Der Wert eines Schlüssels bei einer committeten Höhe ist der Wert, den seine niedrigste Version oberhalb dieser Höhe speichert, sonst sein aktueller Wert. Das Speichern einer Änderung liest nur den aktuellen Wert, nie die Historie, und ein historischer Lesezugriff ist ein Seek in die Versionen des Schlüssels. `PruneBelow` löscht jede Version bei oder unter der Höhe, ab der es behält. Baumknoten werden ebenso versioniert. Zwei Strukturen im Speicher verkleinern die Baumarbeit eines Blocks; keine wird persistiert, keine ändert ein Ergebnis: der Tree-Node-Cache mit bis zu 2^18 kodierten Knoten der aktuellen Bäume (jeder Batch des Stores aktualisiert ihn, und eine Generation, die ungerade ist, während ein solcher Batch committet, lässt einen Leser den Cache nur beim Zustand seines Snapshots nutzen), und je Namespace Wurzel und Knotenänderungen der letzten Wurzelberechnung, geschlüsselt nach dieser Generation und einem SHA-256-Digest der Schreibvorgänge des Namespace, sodass App-Hash, State-Roots und Commit dieselben Schreibvorgänge nur einmal berechnen.
+
 <!-- vexo-docs:technical-parity -->
 ## Anhang zur technischen Parität
 

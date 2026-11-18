@@ -101,6 +101,10 @@ Identificadores relacionados:
 
 - `pebble: database "<dir>" was written in format major version 1, which is no longer supported`
 
+## Historial de estado (undo log) y caché del árbol
+
+El historial de estado es un undo log de versiones por clave. Cuando una clave cambia en una altura (las escrituras de un bloque en su altura, una escritura directa (`Set`, `Delete`, `SetBatch`) tras el primer estado confirmado en la siguiente altura confirmada), el store registra el valor que la clave tenía antes, ausencia incluida, como versión de la clave en esa altura, una vez por clave y altura; las escrituras directas anteriores al bloque que confirma su altura conservan la versión que registró la primera (`hdirect` indica esa altura). El valor de una clave en una altura confirmada es el que registra su versión más baja por encima de esa altura, o su valor actual si no tiene ninguna. Registrar un cambio solo lee el valor actual de la clave, nunca su historial, y una lectura histórica es un seek en las versiones de la clave. `PruneBelow` borra toda versión en o por debajo de la altura desde la que retiene. Los nodos del árbol se versionan igual. Dos estructuras en memoria reducen el trabajo de árbol de un bloque; ninguna se persiste ni cambia un resultado: la caché de nodos del árbol, con hasta 2^18 nodos codificados de los árboles actuales (cada batch del store la actualiza, y una generación impar mientras se confirma tal batch hace que un lector use la caché solo en el estado de su snapshot), y, por namespace, la raíz y los cambios de nodos del último cálculo de raíz, indexados por esa generación y un digest SHA-256 de las escrituras del namespace, de modo que el app hash, las state roots y el commit calculan las mismas escrituras una sola vez.
+
 <!-- vexo-docs:technical-parity -->
 ## Apéndice de paridad técnica
 
