@@ -121,6 +121,10 @@ Eine Berechnung des State Tree hasht verzögert: Ein Write markiert die Hälften
 
 Das Mempool-WAL schreibt jede Änderung in das Log und synct es alle 100 ms (`walSyncInterval`). Eine Admission wartet auf den Write, nicht auf einen Sync. Ein Absturz des Prozesses behält jeden Record; ein Absturz der Maschine verliert höchstens die Admissions des letzten Intervalls, die ihre Clients erneut einreichen. Der Entfernungs-Record eines committeten Blocks wird vor dem nächsten Commit gesynct (`WaitDurable`).
 
+## Wiederverwendete Reads beim History-Eintrag
+
+Ein Commit zeichnet den vorherigen Wert eines geänderten Keys als Version auf, meist ohne ihn erneut zu lesen: Der Store merkt sich die Werte, die `Get` seit dem letzten Batch-Commit gelesen hat, bis zu 2^16, und die Ausführung eines Blocks liest die meisten Keys, die sie ändert. Ein Wert wird nur verwendet, solange seit dem Lesen kein Batch committet wurde, er ist also der aktuelle Wert; ein fehlender Key wird nicht gemerkt und gelesen.
+
 <!-- vexo-docs:technical-parity -->
 ## Anhang zur technischen Parität
 

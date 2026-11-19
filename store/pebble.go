@@ -40,6 +40,8 @@ type PebbleStore struct {
 	treeCache *treeNodeCache
 	// computed holds the last root computation of each namespace; see Computed trees.
 	computed *computedTrees
+	// reads holds the values Get read since the last commit; see Read memo.
+	reads *readMemo
 }
 
 type PebbleOptions struct {
@@ -82,13 +84,15 @@ func OpenPebbleWithOptions(path string, options PebbleOptions) (*PebbleStore, er
 	if options.SyncWrites {
 		writeOptions = pebble.Sync
 	}
-	return &PebbleStore{db: db, writeOptions: writeOptions, treeCache: newTreeNodeCache(), computed: newComputedTrees()}, nil
+	return &PebbleStore{db: db, writeOptions: writeOptions, treeCache: newTreeNodeCache(), computed: newComputedTrees(), reads: newReadMemo()}, nil
 }
 
 // writeBatch commits batch. Every write of the store goes through it, so the tree node cache sees
 // every change of a tree node.
 func (store *PebbleStore) writeBatch(batch *pebble.Batch) error {
-	return store.treeCache.commit(batch, store.writeOptions)
+	return store.reads.commit(func() error {
+		return store.treeCache.commit(batch, store.writeOptions)
+	})
 }
 
 func (store *PebbleStore) put(key []byte, value []byte) error {
@@ -773,13 +777,16 @@ func (store *PebbleStore) Get(ctx context.Context, namespace string, key []byte)
 		return nil, ErrInvalidKey
 	}
 
-	value, err := getValue(store.db, kvKey(namespace, key))
+	dbKey := kvKey(namespace, key)
+	generation := store.reads.begin()
+	value, err := getValue(store.db, dbKey)
 	if err != nil {
 		if errors.Is(err, pebble.ErrNotFound) {
 			return nil, ErrKeyNotFound
 		}
 		return nil, err
 	}
+	store.reads.remember(generation, dbKey, value)
 	return append([]byte(nil), value...), nil
 }
 

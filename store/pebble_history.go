@@ -62,7 +62,14 @@ func (history *historyBatch) record(write KVWrite) error {
 		}
 	}
 	prior := kvHistoryRecord{Height: history.height, Namespace: write.Namespace, Key: append([]byte(nil), write.Key...)}
-	value, err := getValue(history.store.db, kvKey(write.Namespace, write.Key))
+	dbKey := kvKey(write.Namespace, write.Key)
+	// The block's execution usually read the key; its value then is the key's current value.
+	if value, found := history.store.reads.value(dbKey); found {
+		prior.Value = value
+		putVersion(history.batch, kvVersionIndexPrefix, versionKey, history.height, encodeKVHistoryRecord(prior))
+		return nil
+	}
+	value, err := getValue(history.store.db, dbKey)
 	switch {
 	case errors.Is(err, pebble.ErrNotFound):
 		prior.Deleted = true

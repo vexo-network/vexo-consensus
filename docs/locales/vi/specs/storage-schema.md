@@ -121,6 +121,10 @@ Việc tính state tree trì hoãn việc băm: mỗi write chỉ đánh dấu c
 
 Mempool WAL ghi mỗi thay đổi vào log và sync mỗi 100 ms (`walSyncInterval`). Admission chỉ chờ việc ghi, không chờ sync. Khi tiến trình crash, mọi record vẫn còn; khi máy crash, chỉ mất tối đa các admission của khoảng cuối, và client sẽ gửi lại. Record xóa của block đã commit được sync trước commit kế tiếp (`WaitDurable`).
 
+## Tái sử dụng lần đọc cho history
+
+Commit ghi giá trị trước đó của key bị đổi làm version, thường không cần đọc lại: store nhớ các giá trị `Get` đã đọc kể từ lần commit batch gần nhất, tối đa 2^16, vì việc thực thi block đọc phần lớn các key nó thay đổi. Giá trị chỉ được dùng khi chưa có batch nào commit kể từ lúc đọc, nên đó là giá trị hiện tại; key không tồn tại không được nhớ và vẫn được đọc.
+
 <!-- vexo-docs:technical-parity -->
 ## Phụ lục tương đương kỹ thuật
 

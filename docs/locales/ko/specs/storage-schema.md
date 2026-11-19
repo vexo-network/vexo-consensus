@@ -125,6 +125,10 @@ state tree 계산은 해시를 미룹니다. write는 자기가 바꾼 쪽만 �
 
 mempool WAL은 변경마다 log에 쓰고 100 ms마다 sync합니다(`walSyncInterval`). admission은 쓰기만 기다리고 sync는 기다리지 않습니다. 그래서 프로세스 크래시에는 기록이 남고, 머신 크래시에는 마지막 주기의 admission만 잃으며 클라이언트가 다시 제출합니다. commit된 block의 제거 record는 다음 commit 전에 sync됩니다(`WaitDurable`).
 
+## History 기록의 읽기 재사용
+
+commit은 바뀐 key의 이전 값을 version으로 기록하는데, 대개 다시 읽지 않습니다. store는 마지막 batch commit 이후 `Get`이 읽은 값을 최대 2^16개 기억하고, block 실행은 바꾸는 key를 대부분 먼저 읽기 때문입니다. 읽은 뒤 commit된 batch가 없을 때만 그 값을 쓰므로 현재 값과 같습니다. 없는 key는 기억하지 않고 읽습니다.
+
 <!-- vexo-docs:technical-parity -->
 ## 기술 동등성 부록
 

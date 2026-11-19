@@ -121,6 +121,10 @@ State tree की गणना hashing को टालती है: write क�
 
 Mempool WAL हर बदलाव को log में लिखता है और हर 100 ms पर sync करता है (`walSyncInterval`)। Admission केवल write की प्रतीक्षा करता है, sync की नहीं। Process crash में हर record बचा रहता है; machine crash में अधिकतम अंतिम अंतराल के admissions खोते हैं, जिन्हें client फिर से भेजते हैं। Committed block का हटाने वाला record अगले commit से पहले sync होता है (`WaitDurable`)।
 
+## History record के लिए read का पुनः उपयोग
+
+Commit बदले गए key का पिछला मान version के रूप में दर्ज करता है, अक्सर उसे फिर से पढ़े बिना: store पिछले batch commit के बाद `Get` द्वारा पढ़े गए मान, अधिकतम 2^16, याद रखता है, और block का execution जिन keys को बदलता है उनमें से अधिकांश को पहले पढ़ता है। मान का उपयोग तभी होता है जब पढ़ने के बाद कोई batch commit न हुआ हो, इसलिए वह वर्तमान मान है; अनुपस्थित key याद नहीं रखी जाती और पढ़ी जाती है।
+
 <!-- vexo-docs:technical-parity -->
 ## तकनीकी समानता परिशिष्ट
 

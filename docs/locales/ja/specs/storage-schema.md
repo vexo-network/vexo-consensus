@@ -121,6 +121,10 @@ state tree の計算はハッシュを後回しにします。write は自分が
 
 mempool WAL は変更ごとに log に書き、100 ms ごとに sync します(`walSyncInterval`)。admission は書き込みだけを待ち、sync は待ちません。プロセスのクラッシュでは記録が残り、マシンのクラッシュでは最後の間隔の admission だけが失われ、クライアントが再提出します。commit された block の除去 record は次の commit の前に sync されます(`WaitDurable`)。
 
+## History 記録の読み取り再利用
+
+commit は変わった key の以前の値を version として記録しますが、たいてい読み直しません。store は最後の batch commit 以降に `Get` が読んだ値を最大 2^16 個覚えており、block の実行は変える key の大半を先に読むからです。読んだ後に commit された batch がないときだけ値を使うので、現在の値と同じです。存在しない key は覚えずに読みます。
+
 <!-- vexo-docs:technical-parity -->
 ## 技術的同等性付録
 

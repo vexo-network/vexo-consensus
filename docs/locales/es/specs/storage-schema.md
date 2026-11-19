@@ -121,6 +121,10 @@ El cálculo del state tree difiere el hash: un write marca las mitades que cambi
 
 El WAL del mempool escribe cada cambio en el log y lo sincroniza cada 100 ms (`walSyncInterval`). Una admisión espera la escritura, no un sync. Una caída del proceso conserva cada registro; una caída de la máquina pierde como mucho las admisiones del último intervalo, que sus clientes vuelven a enviar. El registro de eliminación de un bloque confirmado se sincroniza antes del siguiente commit (`WaitDurable`).
 
+## Reutilización de lecturas en el historial
+
+Un commit registra el valor previo de una key cambiada como su versión, normalmente sin volver a leerlo: el store recuerda los valores que `Get` leyó desde el último commit de batch, hasta 2^16, y la ejecución de un bloque lee la mayoría de las keys que cambia. Un valor se usa solo si ningún batch se confirmó desde que se leyó, así que es el valor actual; una key ausente no se recuerda y se lee.
+
 <!-- vexo-docs:technical-parity -->
 ## Apéndice de paridad técnica
 

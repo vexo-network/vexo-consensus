@@ -9,9 +9,10 @@ import (
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
-// BenchmarkCommitBlockLikeTheRuntime commits blocks the way the runtime does: the application's
-// app hash and the runtime's state roots each ask for the root of every namespace over the block's
-// writes, and then the block commits with its writes. Each block makes a transfer's writes for 300
+// BenchmarkCommitBlockLikeTheRuntime commits blocks the way the runtime does: the application reads
+// the state each transfer changes, the application's app hash and the runtime's state roots each
+// ask for the root of every namespace over the block's writes, and then the block commits with its
+// writes. Each block makes a transfer's writes for 300
 // of 20,000 accounts (both balances, the sender's nonce and the fee collector), over a history that
 // earlier blocks already built.
 func BenchmarkCommitBlockLikeTheRuntime(b *testing.B) {
@@ -38,6 +39,15 @@ func BenchmarkCommitBlockLikeTheRuntime(b *testing.B) {
 			sender := int(uint64(height)*7919+uint64(transfer)*104729) % accounts
 			receiver := (sender + 1 + transfer) % accounts
 			value := []byte(fmt.Sprintf("%d", height))
+			for _, read := range []KVWrite{
+				{Namespace: "bank", Key: accountKey("balance", sender)},
+				{Namespace: "bank", Key: accountKey("balance", receiver)},
+				{Namespace: "auth", Key: accountKey("nonce", sender)},
+			} {
+				if _, err := storage.Get(ctx, read.Namespace, read.Key); err != nil {
+					b.Fatal(err)
+				}
+			}
 			writes = append(writes,
 				KVWrite{Namespace: "bank", Key: accountKey("balance", sender), Value: value},
 				KVWrite{Namespace: "bank", Key: accountKey("balance", receiver), Value: value},

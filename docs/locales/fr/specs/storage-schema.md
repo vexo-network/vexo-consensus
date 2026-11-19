@@ -121,6 +121,10 @@ Le calcul du state tree diffère le hachage : un write marque les moitiés qu'il
 
 Le WAL du mempool écrit chaque changement dans le log et le synchronise toutes les 100 ms (`walSyncInterval`). Une admission attend l'écriture, pas un sync. Un plantage du processus conserve chaque enregistrement ; un plantage de la machine perd au plus les admissions du dernier intervalle, que leurs clients soumettent de nouveau. L'enregistrement de retrait d'un bloc commité est synchronisé avant le commit suivant (`WaitDurable`).
 
+## Réutilisation des lectures pour l'historique
+
+Un commit enregistre la valeur précédente d'une key modifiée comme sa version, en général sans la relire : le store retient les valeurs lues par `Get` depuis le dernier commit de batch, jusqu'à 2^16, et l'exécution d'un bloc lit la plupart des keys qu'elle modifie. Une valeur n'est utilisée que si aucun batch n'a été commité depuis sa lecture, c'est donc la valeur actuelle ; une key absente n'est pas retenue et est lue.
+
 <!-- vexo-docs:technical-parity -->
 ## Annexe de parité technique
 

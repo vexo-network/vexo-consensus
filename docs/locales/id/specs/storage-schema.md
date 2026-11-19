@@ -121,6 +121,10 @@ Perhitungan state tree menunda hash: write menandai sisi yang diubahnya, dan set
 
 Mempool WAL menulis setiap perubahan ke log dan melakukan sync setiap 100 ms (`walSyncInterval`). Admission menunggu penulisan, bukan sync. Crash proses mempertahankan setiap record; crash mesin kehilangan paling banyak admission interval terakhir, yang dikirim ulang oleh kliennya. Record penghapusan blok yang di-commit di-sync sebelum commit berikutnya (`WaitDurable`).
 
+## Penggunaan ulang read untuk history
+
+Commit mencatat nilai sebelumnya dari key yang berubah sebagai version-nya, biasanya tanpa membacanya lagi: store mengingat nilai yang dibaca `Get` sejak commit batch terakhir, hingga 2^16, dan eksekusi blok membaca sebagian besar key yang diubahnya. Nilai hanya dipakai bila tidak ada batch yang di-commit sejak dibaca, jadi itu nilai saat ini; key yang tidak ada tidak diingat dan dibaca.
+
 <!-- vexo-docs:technical-parity -->
 ## Lampiran Paritas Teknis
 

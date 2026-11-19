@@ -367,3 +367,115 @@ func TestRootsOfDifferentWritesOverOneStateStayApart(t *testing.T) {
 		t.Fatalf("committed root is %x, want the root of the committed writes %x", root, want(alternatives[3]))
 	}
 }
+
+// A commit records a changed key's value before the block from what Get read, but only while no
+// batch committed since the read: a value read before another commit changed the key is stale and
+// must not become the key's version.
+func TestCommitRecordsPriorValuesReadBeforeTheBlockOnly(t *testing.T) {
+	ctx := context.Background()
+	storage := openTestStore(t)
+	defer closeStore(t, storage)
+	key := []byte("alice")
+	commit := func(height types.Height, writes ...KVWrite) {
+		t.Helper()
+		var hash types.Hash
+		hash[0], hash[1] = byte(height), 0xee
+		block := BlockRecord{Block: types.Block{Header: types.Header{Height: height}}, Hash: hash}
+		if err := storage.CommitBlockStateWithWrites(ctx, writes, block, StateRecord{Height: height}, nil, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	set := func(value string) KVWrite {
+		return KVWrite{Namespace: "bank", Key: key, Value: []byte(value)}
+	}
+	commit(1, set("v1"))
+	if value, err := storage.Get(ctx, "bank", key); err != nil || string(value) != "v1" {
+		t.Fatalf("read %q, %v", value, err)
+	}
+	// Block 2 changes the key without reading it; the value read above is stale from here on.
+	commit(2, set("v2"))
+	commit(3, set("v3"))
+	if value, err := storage.GetAt(ctx, 2, "bank", key); err != nil || string(value) != "v2" {
+		t.Fatalf("the value at height 2 is %q (%v), want v2: a stale read became a version", value, err)
+	}
+
+	// A read with no commit since is the key's current value, and the version records it.
+	if value, err := storage.Get(ctx, "bank", key); err != nil || string(value) != "v3" {
+		t.Fatalf("read %q, %v", value, err)
+	}
+	commit(4, set("v4"))
+	if value, err := storage.GetAt(ctx, 3, "bank", key); err != nil || string(value) != "v3" {
+		t.Fatalf("the value at height 3 is %q (%v), want v3", value, err)
+	}
+
+	// A direct write changes the key as well.
+	if _, err := storage.Get(ctx, "bank", key); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.SetBatch(ctx, []KVWrite{set("direct")}); err != nil {
+		t.Fatal(err)
+	}
+	commit(5, set("v5"))
+	if value, err := storage.GetAt(ctx, 4, "bank", key); err != nil || string(value) != "v4" {
+		t.Fatalf("the value at height 4 is %q (%v), want v4", value, err)
+	}
+}
+
+// The memo serves a value only while no commit ran since it was read and none is running.
+func TestReadMemoServesOnlyValuesNoCommitFollowed(t *testing.T) {
+	memo := newReadMemo()
+	key, other := []byte("k"), []byte("other")
+	nothing := func() error { return nil }
+
+	// A read is served until a commit ends.
+	memo.remember(memo.begin(), key, []byte("v1"))
+	if value, found := memo.value(key); !found || string(value) != "v1" {
+		t.Fatalf("a read with no commit since is the current value, got %q %t", value, found)
+	}
+	if err := memo.commit(func() error {
+		if _, found := memo.value(key); found {
+			t.Fatal("the memo serves a value while a commit runs")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, found := memo.value(key); found {
+		t.Fatal("the memo serves a value read before the last commit")
+	}
+
+	// A read begun before a commit is not remembered after it, and does not evict newer reads.
+	stale := memo.begin()
+	if err := memo.commit(nothing); err != nil {
+		t.Fatal(err)
+	}
+	memo.remember(memo.begin(), other, []byte("fresh"))
+	memo.remember(stale, key, []byte("stale"))
+	if _, found := memo.value(key); found {
+		t.Fatal("a read begun before a commit was remembered after it")
+	}
+	if value, found := memo.value(other); !found || string(value) != "fresh" {
+		t.Fatalf("a stale read evicted a fresh one: %q %t", value, found)
+	}
+
+	// A read during a commit is not served once the commit ends.
+	if err := memo.commit(func() error {
+		memo.remember(memo.begin(), key, []byte("during"))
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, found := memo.value(key); found {
+		t.Fatal("a read a commit overlapped is served after it")
+	}
+
+	// Values of an earlier generation are dropped when a later one is remembered.
+	memo.remember(memo.begin(), key, []byte("old"))
+	if err := memo.commit(nothing); err != nil {
+		t.Fatal(err)
+	}
+	memo.remember(memo.begin(), other, []byte("new"))
+	if _, found := memo.value(key); found {
+		t.Fatal("a value of an earlier generation is served")
+	}
+}
