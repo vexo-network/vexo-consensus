@@ -125,6 +125,16 @@ Le WAL du mempool écrit chaque changement dans le log et le synchronise toutes 
 
 Un commit enregistre la valeur précédente d'une key modifiée comme sa version, en général sans la relire : le store retient les valeurs lues par `Get` depuis le dernier commit de batch, jusqu'à 2^16, et l'exécution d'un bloc lit la plupart des keys qu'elle modifie. Une valeur n'est utilisée que si aucun batch n'a été commité depuis sa lecture, c'est donc la valeur actuelle ; une key absente n'est pas retenue et est lue.
 
+## Nodes du state tree versionnés
+
+Les nodes du tree sont stockés par version et aucune hauteur ultérieure ne les réécrit. Un batch écrit chaque node qu'il change sous `tree: | namespace | height | node key`, et un node interne stocke les versions de ses deux moitiés, si bien que chaque node se trouve depuis son parent. Un root record (`troot:`) marque chaque hauteur où le tree a changé ; le tree de toute hauteur se lit depuis son dernier root record inférieur ou égal. Un node remplacé reste pour les hauteurs inférieures et figure dans l'orphan list de la hauteur qui l'a remplacé (`torph:`, une par batch), que `PruneBelow` supprime. Les versions ne faisant que croître, les écritures d'un bloc ne se dispersent pas parmi les keys existantes, ce qui réduit les flush et compactions de Pebble. Le version index des keys (`hidx:`) a lui aussi une entrée par batch.
+
+Identifiants associés :
+
+- `troot: | namespace | height`
+- `torph: | height | first entry`
+- `hidx: | height | first group`
+
 <!-- vexo-docs:technical-parity -->
 ## Annexe de parité technique
 

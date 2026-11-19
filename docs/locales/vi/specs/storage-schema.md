@@ -125,6 +125,16 @@ Mempool WAL ghi mỗi thay đổi vào log và sync mỗi 100 ms (`walSyncInterv
 
 Commit ghi giá trị trước đó của key bị đổi làm version, thường không cần đọc lại: store nhớ các giá trị `Get` đã đọc kể từ lần commit batch gần nhất, tối đa 2^16, vì việc thực thi block đọc phần lớn các key nó thay đổi. Giá trị chỉ được dùng khi chưa có batch nào commit kể từ lúc đọc, nên đó là giá trị hiện tại; key không tồn tại không được nhớ và vẫn được đọc.
 
+## Node state tree theo phiên bản
+
+Node của tree được lưu theo phiên bản và không height nào sau đó ghi đè. Mỗi batch ghi node nó thay đổi vào `tree: | namespace | height | node key`, và node nội bộ lưu kèm phiên bản của hai nửa, nên mọi node được tìm từ node cha. Root record (`troot:`) đánh dấu mỗi height mà tree thay đổi; tree ở bất kỳ height nào được đọc từ root record cuối cùng không vượt quá height đó. Node bị thay thế vẫn giữ cho các height thấp hơn và nằm trong orphan list của height thay thế nó (`torph:`, mỗi batch một list), do `PruneBelow` xóa. Vì phiên bản chỉ tăng, các ghi của một block không rải rác giữa các key sẵn có, giúp flush và compaction của Pebble nhỏ hơn. Version index của key (`hidx:`) cũng chỉ một mục mỗi batch.
+
+Định danh liên quan:
+
+- `troot: | namespace | height`
+- `torph: | height | first entry`
+- `hidx: | height | first group`
+
 <!-- vexo-docs:technical-parity -->
 ## Phụ lục tương đương kỹ thuật
 

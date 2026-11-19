@@ -125,6 +125,16 @@ Mempool WAL हर बदलाव को log में लिखता है �
 
 Commit बदले गए key का पिछला मान version के रूप में दर्ज करता है, अक्सर उसे फिर से पढ़े बिना: store पिछले batch commit के बाद `Get` द्वारा पढ़े गए मान, अधिकतम 2^16, याद रखता है, और block का execution जिन keys को बदलता है उनमें से अधिकांश को पहले पढ़ता है। मान का उपयोग तभी होता है जब पढ़ने के बाद कोई batch commit न हुआ हो, इसलिए वह वर्तमान मान है; अनुपस्थित key याद नहीं रखी जाती और पढ़ी जाती है।
 
+## State tree nodes का संस्करण-आधारित भंडारण
+
+Tree nodes संस्करण के अनुसार रखे जाते हैं और बाद की कोई height उन्हें दोबारा नहीं लिखती। Batch हर बदले node को `tree: | namespace | height | node key` में लिखता है, और internal node अपने दोनों halves के संस्करण भी रखता है, जिससे हर node अपने parent से मिलता है। Root record (`troot:`) उस हर height को चिह्नित करता है जिस पर tree बदला; किसी भी height का tree उससे कम या बराबर अंतिम root record से पढ़ा जाता है। बदला गया node नीचे की heights के लिए रहता है और बदलने वाली height की orphan list (`torph:`, प्रति batch एक) में जाता है, जिसे `PruneBelow` हटाता है। संस्करण केवल बढ़ते हैं, इसलिए block के writes मौजूदा keys में नहीं बिखरते और Pebble के flush और compaction छोटे रहते हैं। Keys का version index (`hidx:`) भी प्रति batch एक entry है।
+
+संबंधित पहचानकर्ता:
+
+- `troot: | namespace | height`
+- `torph: | height | first entry`
+- `hidx: | height | first group`
+
 <!-- vexo-docs:technical-parity -->
 ## तकनीकी समानता परिशिष्ट
 

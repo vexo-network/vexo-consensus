@@ -125,6 +125,16 @@ mempool WAL 在每次变更时写入 log,每 100 ms sync 一次(`walSyncInterval
 
 commit 把被改 key 的旧值记录为 version,但通常不再读取:store 记住自上次 batch commit 以来 `Get` 读到的值(最多 2^16 个),而 block 执行大多会先读它要改的 key。只有读取之后没有 batch commit 时才使用该值,因此它就是当前值。不存在的 key 不会被记住,仍然读取。
 
+## State tree node 的版本存储
+
+tree node 按版本存储,之后的高度不会重写。batch 把改变的 node 写到 `tree: | namespace | height | node key`,internal node 同时存储两个 half 的版本,因此可以从 parent 找到 child。root record(`troot:`)标记 tree 改变的高度,任何高度的 tree 都从该高度及以下最后一个 root record 开始读取。被替换的 node 为更低的高度保留,并列入替换高度的 orphan list(`torph:`,每个 batch 一个),由 `PruneBelow` 删除。版本只增不减,区块的写入不会分散到已有的 key 之间,使 Pebble 的 flush 和 compaction 更小。key 的 version index(`hidx:`)也是每个 batch 一个条目。
+
+相关标识符:
+
+- `troot: | namespace | height`
+- `torph: | height | first entry`
+- `hidx: | height | first group`
+
 <!-- vexo-docs:technical-parity -->
 ## 技术等价附录
 

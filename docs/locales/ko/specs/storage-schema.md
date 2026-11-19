@@ -129,6 +129,16 @@ mempool WAL은 변경마다 log에 쓰고 100 ms마다 sync합니다(`walSyncInt
 
 commit은 바뀐 key의 이전 값을 version으로 기록하는데, 대개 다시 읽지 않습니다. store는 마지막 batch commit 이후 `Get`이 읽은 값을 최대 2^16개 기억하고, block 실행은 바꾸는 key를 대부분 먼저 읽기 때문입니다. 읽은 뒤 commit된 batch가 없을 때만 그 값을 쓰므로 현재 값과 같습니다. 없는 key는 기억하지 않고 읽습니다.
 
+## State tree node 버전 저장
+
+tree node는 버전으로 저장되고 이후 높이가 다시 쓰지 않습니다. batch는 바꾼 node를 `tree: | namespace | height | node key`에 쓰고, internal node는 두 half의 버전을 함께 저장해 parent에서 child를 찾습니다. root record(`troot:`)가 tree가 바뀐 높이를 표시하고, 어떤 높이의 tree든 그 높이 이하의 마지막 root record부터 읽습니다. 교체된 node는 아래 높이를 위해 남고 교체한 높이의 orphan list(`torph:`, batch당 하나)에 들어가며, `PruneBelow`가 이를 지웁니다. 버전이 계속 증가하므로 블록의 쓰기가 기존 key 사이에 흩어지지 않아 Pebble의 flush와 compaction이 작아집니다. key version index(`hidx:`)도 batch당 한 entry입니다.
+
+관련 식별자:
+
+- `troot: | namespace | height`
+- `torph: | height | first entry`
+- `hidx: | height | first group`
+
 <!-- vexo-docs:technical-parity -->
 ## 기술 동등성 부록
 

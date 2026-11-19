@@ -589,7 +589,8 @@ func (store *PebbleStore) commitBlockStateBatch(ctx context.Context, writes []KV
 		}
 		batch.Set(key, append([]byte(nil), write.Value...), nil)
 	}
-	if err := trees.persist(batch, true, state.Height, existing); err != nil {
+	history.finish()
+	if err := trees.persist(batch, state.Height); err != nil {
 		return err
 	}
 	batch.Set(blockHeightKey(block.Block.Header.Height), encodedBlock, nil)

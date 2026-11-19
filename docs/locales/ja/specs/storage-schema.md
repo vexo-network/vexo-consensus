@@ -125,6 +125,16 @@ mempool WAL は変更ごとに log に書き、100 ms ごとに sync します(`
 
 commit は変わった key の以前の値を version として記録しますが、たいてい読み直しません。store は最後の batch commit 以降に `Get` が読んだ値を最大 2^16 個覚えており、block の実行は変える key の大半を先に読むからです。読んだ後に commit された batch がないときだけ値を使うので、現在の値と同じです。存在しない key は覚えずに読みます。
 
+## State tree node のバージョン保存
+
+tree node はバージョンごとに保存され、後の高さが書き換えることはありません。batch は変えた node を `tree: | namespace | height | node key` に書き、internal node は二つの half のバージョンも保存するので、parent から child を辿れます。root record(`troot:`)が tree の変わった高さを示し、どの高さの tree もその高さ以下の最後の root record から読みます。置き換えられた node は下の高さのために残り、置き換えた高さの orphan list(`torph:`、batch ごとに一つ)に載り、`PruneBelow` が消します。バージョンは増える一方なので、ブロックの書き込みが既存の key に散らばらず、Pebble の flush と compaction が小さくなります。key の version index(`hidx:`)も batch ごとに一エントリです。
+
+関連する識別子:
+
+- `troot: | namespace | height`
+- `torph: | height | first entry`
+- `hidx: | height | first group`
+
 <!-- vexo-docs:technical-parity -->
 ## 技術的同等性付録
 

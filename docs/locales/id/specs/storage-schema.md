@@ -125,6 +125,16 @@ Mempool WAL menulis setiap perubahan ke log dan melakukan sync setiap 100 ms (`w
 
 Commit mencatat nilai sebelumnya dari key yang berubah sebagai version-nya, biasanya tanpa membacanya lagi: store mengingat nilai yang dibaca `Get` sejak commit batch terakhir, hingga 2^16, dan eksekusi blok membaca sebagian besar key yang diubahnya. Nilai hanya dipakai bila tidak ada batch yang di-commit sejak dibaca, jadi itu nilai saat ini; key yang tidak ada tidak diingat dan dibaca.
 
+## Node state tree berversi
+
+Node tree disimpan per versi dan tidak ditulis ulang oleh height berikutnya. Batch menulis setiap node yang diubahnya di `tree: | namespace | height | node key`, dan node internal menyimpan versi kedua half-nya, sehingga setiap node ditemukan dari parent-nya. Root record (`troot:`) menandai setiap height tempat tree berubah; tree pada height mana pun dibaca dari root record terakhir pada atau di bawah height itu. Node yang diganti tetap ada untuk height di bawahnya dan masuk orphan list height penggantinya (`torph:`, satu per batch), yang dihapus `PruneBelow`. Karena versi hanya bertambah, write sebuah blok tidak tersebar di antara key yang ada, sehingga flush dan compaction Pebble kecil. Version index key (`hidx:`) juga satu entri per batch.
+
+Pengenal terkait:
+
+- `troot: | namespace | height`
+- `torph: | height | first entry`
+- `hidx: | height | first group`
+
 <!-- vexo-docs:technical-parity -->
 ## Lampiran Paritas Teknis
 

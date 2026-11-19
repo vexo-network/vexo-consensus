@@ -390,9 +390,10 @@ func TestNamespaceImportWritesPagesIntoAFreshTree(t *testing.T) {
 	}
 }
 
-// Pruning in steps leaves exactly the versions one prune to the last height leaves, so the
-// version index that lets each prune visit only the versions below its height loses nothing; and
-// the index holds no more entries than there are versions.
+// Pruning in steps leaves exactly the versions, tree nodes and root records one prune to the last
+// height leaves, so the version index and the orphan lists that let each prune visit only what it
+// drops lose nothing; the index holds no more entries than there are versions; and a prune to the
+// last height leaves exactly the nodes of the current trees.
 func TestPruningInStepsMatchesOnePrune(t *testing.T) {
 	ctx := context.Background()
 	build := func() *PebbleStore {
@@ -444,16 +445,34 @@ func TestPruningInStepsMatchesOnePrune(t *testing.T) {
 	if _, err := once.PruneBelow(ctx, 30); err != nil {
 		t.Fatal(err)
 	}
-	for _, prefix := range [][]byte{kvHistoryPrefix, stateTreeHistoryPrefix} {
+	for _, prefix := range [][]byte{kvHistoryPrefix, stateTreePrefix, stateTreeRootPrefix, stateTreeOrphanPrefix} {
 		if got, want := count(stepped, prefix), count(once, prefix); got != want || want == 0 {
-			t.Fatalf("pruning in steps left %d versions under %q, one prune %d", got, prefix, want)
+			t.Fatalf("pruning in steps left %d keys under %q, one prune %d", got, prefix, want)
 		}
 	}
-	for _, pair := range [][2][]byte{{kvVersionIndexPrefix, kvHistoryPrefix}, {stateTreeVersionIndexPrefix, stateTreeHistoryPrefix}} {
-		if entries, versions := count(stepped, pair[0]), count(stepped, pair[1]); entries > versions {
-			t.Fatalf("the version index %q holds %d entries for %d versions", pair[0], entries, versions)
-		}
+	if entries, versions := count(stepped, kvVersionIndexPrefix), count(stepped, kvHistoryPrefix); entries > versions {
+		t.Fatalf("the version index holds %d entries for %d versions", entries, versions)
 	}
+	defer func() {
+		// Pruned to the last height, the store holds the nodes of the current tree and nothing else.
+		if _, err := once.PruneBelow(ctx, 40); err != nil {
+			t.Fatal(err)
+		}
+		pairs, err := once.ExportNamespace(ctx, "bank")
+		if err != nil {
+			t.Fatal(err)
+		}
+		built, err := stateproof.Build("bank", stateProofPairs(pairs))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if nodes := count(once, stateTreePrefix); nodes != len(built) {
+			t.Fatalf("pruned to the last height, the store holds %d tree nodes, the tree has %d", nodes, len(built))
+		}
+		if records := count(once, stateTreeRootPrefix); records != 1 {
+			t.Fatalf("pruned to the last height, the store holds %d root records, want 1", records)
+		}
+	}()
 	for height := types.Height(30); height <= 40; height++ {
 		for index := range 15 {
 			key := []byte(fmt.Sprintf("key/%d", index))

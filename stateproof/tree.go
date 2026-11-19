@@ -67,23 +67,30 @@ const (
 	nodeKindInternal byte = 2
 )
 
+// EncodedNodeSize is the length of every node's encoding.
+const EncodedNodeSize = 1 + 2*len(types.Hash{})
+
 // EncodeNode encodes node for storage.
 func EncodeNode(node Node) []byte {
-	encoded := make([]byte, 0, 1+2*len(types.Hash{}))
+	return AppendNode(make([]byte, 0, EncodedNodeSize), node)
+}
+
+// AppendNode appends the encoding of node (see EncodeNode) to dst.
+func AppendNode(dst []byte, node Node) []byte {
 	if node.Leaf != nil {
-		encoded = append(encoded, nodeKindLeaf)
-		encoded = append(encoded, node.Leaf.Path[:]...)
-		return append(encoded, node.Leaf.ValueHash[:]...)
+		dst = append(dst, nodeKindLeaf)
+		dst = append(dst, node.Leaf.Path[:]...)
+		return append(dst, node.Leaf.ValueHash[:]...)
 	}
-	encoded = append(encoded, nodeKindInternal)
-	encoded = append(encoded, node.Left[:]...)
-	return append(encoded, node.Right[:]...)
+	dst = append(dst, nodeKindInternal)
+	dst = append(dst, node.Left[:]...)
+	return append(dst, node.Right[:]...)
 }
 
 // DecodeNode decodes a node EncodeNode encoded.
 func DecodeNode(encoded []byte) (Node, error) {
 	size := len(types.Hash{})
-	if len(encoded) != 1+2*size {
+	if len(encoded) != EncodedNodeSize {
 		return Node{}, ErrInvalidNode
 	}
 	var first, second types.Hash
@@ -229,14 +236,14 @@ func (tree *Tree) Changes() ([]NodeChange, error) {
 		changes = append(changes, NodeChange{Key: key, Node: &nodes[len(nodes)-1]})
 	}
 	slices.SortFunc(changes, func(left, right NodeChange) int {
-		return left.Key.compare(right.Key)
+		return left.Key.Compare(right.Key)
 	})
 	return changes, nil
 }
 
-// compare orders keys as their Bytes do: by depth, then by prefix, whose bits past the depth are
-// zero.
-func (key NodeKey) compare(other NodeKey) int {
+// Compare orders keys as their Bytes do: by depth, then by prefix, whose bits past the depth are
+// zero. Changes returns its changes in this order.
+func (key NodeKey) Compare(other NodeKey) int {
 	if key.Depth != other.Depth {
 		return cmp.Compare(key.Depth, other.Depth)
 	}
@@ -262,10 +269,10 @@ func (tree *Tree) hashNodes() error {
 		for _, key := range byDepth[depth] {
 			change := tree.changes[key]
 			var err error
-			if change.node.Left, err = tree.halfHash(childKey(key, 0), change.node.Left); err != nil {
+			if change.node.Left, err = tree.halfHash(key.Child(0), change.node.Left); err != nil {
 				return err
 			}
-			if change.node.Right, err = tree.halfHash(childKey(key, 1), change.node.Right); err != nil {
+			if change.node.Right, err = tree.halfHash(key.Child(1), change.node.Right); err != nil {
 				return err
 			}
 			change.stale = false
@@ -298,8 +305,9 @@ func (tree *Tree) halfHash(key NodeKey, half types.Hash) (types.Hash, error) {
 	return node.Hash(), nil
 }
 
-// childKey returns the key of the child of the internal node at key on the side of bit.
-func childKey(key NodeKey, bit byte) NodeKey {
+// Child returns the key of the child of the internal node at key on the side of bit: 0 for its left
+// half, 1 for its right.
+func (key NodeKey) Child(bit byte) NodeKey {
 	child := NodeKey{Depth: key.Depth + 1, Prefix: key.Prefix}
 	if bit == 1 {
 		child.Prefix[key.Depth/8] |= 1 << (7 - uint(key.Depth%8))

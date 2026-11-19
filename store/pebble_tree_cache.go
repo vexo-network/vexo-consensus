@@ -17,7 +17,9 @@ import (
 //
 // The cache holds the stored value of a node key as of the current state, and only nodes that
 // exist. Every batch the store commits goes through writeBatch, which applies the batch's sets and
-// deletes of tree nodes to the cache, so the cache never holds a node the store no longer has. A
+// deletes of tree nodes to the cache, so the cache never holds a node the store no longer has, and
+// drops the nodes the batch orphans (see State trees), so it holds the nodes of the current trees
+// rather than those of the heights before. A
 // generation orders the cache against snapshots: it is odd while a batch that changes tree nodes
 // commits, and a reader uses the cache only at the even generation it saw both before and after it
 // opened its snapshot, so it never mixes nodes of two states.
@@ -95,6 +97,14 @@ func treeNodeWrites(batch *pebble.Batch) ([]treeNodeWrite, error) {
 		}
 		if !ok {
 			return writes, nil
+		}
+		if kind == pebble.InternalKeyKindSet && bytes.HasPrefix(key, stateTreeOrphanPrefix) {
+			if err := eachListedKey(value, func(entry []byte) {
+				writes = append(writes, treeNodeWrite{key: append(bytes.Clone(stateTreePrefix), entry...)})
+			}); err != nil {
+				return nil, err
+			}
+			continue
 		}
 		if !bytes.HasPrefix(key, stateTreePrefix) {
 			continue

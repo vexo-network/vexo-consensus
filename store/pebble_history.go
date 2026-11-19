@@ -40,10 +40,30 @@ type historyBatch struct {
 	// is kept.
 	existing bool
 	recorded map[string]struct{}
+	versions *keyList
 }
 
 func newHistoryBatch(store *PebbleStore, batch *pebble.Batch, height types.Height, existing bool) *historyBatch {
-	return &historyBatch{store: store, batch: batch, height: height, existing: existing, recorded: make(map[string]struct{})}
+	return &historyBatch{
+		store:    store,
+		batch:    batch,
+		height:   height,
+		existing: existing,
+		recorded: make(map[string]struct{}),
+		versions: newKeyList(kvVersionIndexPrefix, height),
+	}
+}
+
+// finish lists the recorded versions in the version index.
+func (history *historyBatch) finish() {
+	history.versions.finish(history.batch)
+}
+
+// put adds the version stored at versionKey, a key under kvHistoryPrefix that ends in the batch's
+// height, and lists it.
+func (history *historyBatch) put(versionKey []byte, value []byte) {
+	history.batch.Set(versionKey, value, nil)
+	history.versions.add(versionKey[len(kvHistoryPrefix) : len(versionKey)-8])
 }
 
 // record adds the version of the key write changes: the value it holds before the batch, once per
@@ -66,7 +86,7 @@ func (history *historyBatch) record(write KVWrite) error {
 	// The block's execution usually read the key; its value then is the key's current value.
 	if value, found := history.store.reads.value(dbKey); found {
 		prior.Value = value
-		putVersion(history.batch, kvVersionIndexPrefix, versionKey, history.height, encodeKVHistoryRecord(prior))
+		history.put(versionKey, encodeKVHistoryRecord(prior))
 		return nil
 	}
 	value, err := getValue(history.store.db, dbKey)
@@ -78,7 +98,7 @@ func (history *historyBatch) record(write KVWrite) error {
 	default:
 		prior.Value = value
 	}
-	putVersion(history.batch, kvVersionIndexPrefix, versionKey, history.height, encodeKVHistoryRecord(prior))
+	history.put(versionKey, encodeKVHistoryRecord(prior))
 	return nil
 }
 
@@ -103,27 +123,68 @@ func (store *PebbleStore) directWritesAt(height types.Height) (bool, error) {
 
 // Version index.
 //
-// Every version is also listed under its height in a version index (kvVersionIndexPrefix for the
-// versions of keys, stateTreeVersionIndexPrefix for those of tree nodes). A version is read only
-// by the heights below it, so a prune that retains from a height drops exactly the versions listed
-// at or below it, visiting each version once whatever the size of the history. Versions dropped
-// with their namespace (an import) leave entries that the next prune drops.
-var (
-	kvVersionIndexPrefix        = []byte("hidx:")
-	stateTreeVersionIndexPrefix = []byte("tidx:")
-)
+// The versions of keys one batch records at one height are listed in the version index
+// (kvVersionIndexPrefix) as one key list (see keyList) whose entries are the versions' groups: a
+// version key without its history prefix and height. A version is read only by the heights below
+// it, so a prune that retains from a height drops exactly the versions listed at or below it,
+// visiting each version once whatever the size of the history, and one list per batch keeps the
+// index from doubling the entries a block writes. Versions dropped with their namespace (an import)
+// leave groups that the next prune skips.
+var kvVersionIndexPrefix = []byte("hidx:")
 
-func versionIndexKey(indexPrefix []byte, height types.Height, versionKey []byte) []byte {
-	key := make([]byte, 0, len(indexPrefix)+8+len(versionKey))
-	key = append(key, indexPrefix...)
-	key = binary.BigEndian.AppendUint64(key, uint64(height))
-	return append(key, versionKey...)
+// keyList collects keys a batch lists under a prefix at one height, and adds them to the batch as
+// one entry:
+//
+//	prefix | height | first key  ->  repeated uvarint(len(key)) | key
+//
+// Two batches at one height never list the same first key: a later batch at a height lists only
+// keys the earlier ones did not (a version not recorded yet, a node not orphaned yet).
+type keyList struct {
+	prefix  []byte
+	height  types.Height
+	first   []byte
+	entries []byte
 }
 
-// putVersion adds to batch a version and its entry in the version index under its height.
-func putVersion(batch *pebble.Batch, indexPrefix []byte, versionKey []byte, height types.Height, value []byte) {
-	batch.Set(versionKey, value, nil)
-	batch.Set(versionIndexKey(indexPrefix, height, versionKey), nil, nil)
+func newKeyList(prefix []byte, height types.Height) *keyList {
+	return &keyList{prefix: prefix, height: height}
+}
+
+func keyListKey(prefix []byte, height types.Height, first []byte) []byte {
+	key := make([]byte, 0, len(prefix)+8+len(first))
+	key = append(key, prefix...)
+	key = binary.BigEndian.AppendUint64(key, uint64(height))
+	return append(key, first...)
+}
+
+// add lists key, which the caller does not modify afterwards.
+func (list *keyList) add(key []byte) {
+	if list.first == nil {
+		list.first = key
+	}
+	list.entries = binary.AppendUvarint(list.entries, uint64(len(key)))
+	list.entries = append(list.entries, key...)
+}
+
+// finish adds the list, if it holds a key, to batch.
+func (list *keyList) finish(batch *pebble.Batch) {
+	if list.first == nil {
+		return
+	}
+	batch.Set(keyListKey(list.prefix, list.height, list.first), list.entries, nil)
+}
+
+// eachListedKey calls visit with every key of an encoded key list, in order.
+func eachListedKey(entries []byte, visit func(key []byte)) error {
+	for len(entries) > 0 {
+		size, read := binary.Uvarint(entries)
+		if read <= 0 || size == 0 || uint64(len(entries)-read) < size {
+			return ErrInvalidStateRecord
+		}
+		visit(entries[read : read+int(size)])
+		entries = entries[read+int(size):]
+	}
+	return nil
 }
 
 // directWriteHeight is the height a direct write takes effect at: the height of
@@ -189,7 +250,8 @@ func (store *PebbleStore) applyDirectWrites(ctx context.Context, writes []KVWrit
 		}
 		batch.Set(key, append([]byte(nil), write.Value...), nil)
 	}
-	if err := trees.persist(batch, versioned, height, true); err != nil {
+	history.finish()
+	if err := trees.persist(batch, height); err != nil {
 		return err
 	}
 	if versioned {
@@ -485,27 +547,26 @@ func nextHistoryKeyGroup(prefix []byte) []byte {
 // pruneHistoryBelow drops the versions no retained height can read. A version records a key's
 // value at the heights below it, so the heights from retainFrom on read only the versions above
 // retainFrom, and every version at or below it goes. Its cost is in the versions it drops (see
-// Version index), not in the size of the history.
-//
-// The versions of the state tree nodes are pruned by the same rule.
+// Version index), not in the size of the history. It drops the tree nodes no retained height reads
+// as well (see pruneTreesBelow).
 func (store *PebbleStore) pruneHistoryBelow(ctx context.Context, batch *pebble.Batch, retainFrom types.Height) (uint64, uint64, error) {
-	pruned, err := store.pruneVersionsBelow(ctx, batch, kvVersionIndexPrefix, retainFrom)
+	pruned, err := store.pruneVersionsBelow(ctx, batch, retainFrom)
 	if err != nil {
 		return 0, 0, err
 	}
-	prunedNodes, err := store.pruneVersionsBelow(ctx, batch, stateTreeVersionIndexPrefix, retainFrom)
+	prunedNodes, err := store.pruneTreesBelow(ctx, batch, retainFrom)
 	if err != nil {
 		return 0, 0, err
 	}
 	return pruned, prunedNodes, nil
 }
 
-// pruneVersionsBelow drops the versions the version index under indexPrefix lists at or below
-// retainFrom, with their index entries, and returns how many versions it dropped.
-func (store *PebbleStore) pruneVersionsBelow(ctx context.Context, batch *pebble.Batch, indexPrefix []byte, retainFrom types.Height) (uint64, error) {
-	span := prefixRange(indexPrefix)
+// pruneVersionsBelow drops the versions of keys the version index lists at or below retainFrom,
+// with their index entries, and returns how many versions it dropped.
+func (store *PebbleStore) pruneVersionsBelow(ctx context.Context, batch *pebble.Batch, retainFrom types.Height) (uint64, error) {
+	span := prefixRange(kvVersionIndexPrefix)
 	if retainFrom < math.MaxUint64 {
-		span.upper = versionIndexKey(indexPrefix, retainFrom+1, nil)
+		span.upper = keyListKey(kvVersionIndexPrefix, retainFrom+1, nil)
 	}
 	entries := newIter(store.db, span)
 	defer entries.Close()
@@ -517,26 +578,105 @@ func (store *PebbleStore) pruneVersionsBelow(ctx context.Context, batch *pebble.
 		default:
 		}
 		entry := entries.Key()
-		if len(entry) < len(indexPrefix)+8+9 {
+		if len(entry) < len(kvVersionIndexPrefix)+8+1 {
 			return 0, ErrInvalidStateRecord
 		}
 		batch.Delete(append([]byte(nil), entry...), nil)
-		versionKey := append([]byte(nil), entry[len(indexPrefix)+8:]...)
-		found, err := hasKey(store.db, versionKey)
-		if err != nil {
+		height := entry[len(kvVersionIndexPrefix) : len(kvVersionIndexPrefix)+8]
+		var failure error
+		if err := eachListedKey(entries.Value(), func(group []byte) {
+			if failure != nil {
+				return
+			}
+			versionKey := make([]byte, 0, len(kvHistoryPrefix)+len(group)+8)
+			versionKey = append(append(append(versionKey, kvHistoryPrefix...), group...), height...)
+			found, err := hasKey(store.db, versionKey)
+			if err != nil {
+				failure = err
+				return
+			}
+			if !found {
+				// Dropped with its namespace by an import.
+				return
+			}
+			batch.Delete(versionKey, nil)
+			pruned++
+		}); err != nil {
 			return 0, err
 		}
-		if !found {
-			// Dropped with its namespace by an import.
-			continue
+		if failure != nil {
+			return 0, failure
 		}
-		batch.Delete(versionKey, nil)
-		pruned++
 	}
 	if err := entries.Error(); err != nil {
 		return 0, err
 	}
 	return pruned, nil
+}
+
+// pruneTreesBelow drops the tree nodes orphaned at or below retainFrom, which only heights below it
+// read, with their orphan lists, and every root record at or below retainFrom but the last of each
+// namespace, which the heights from retainFrom on read. It returns how many nodes it dropped.
+func (store *PebbleStore) pruneTreesBelow(ctx context.Context, batch *pebble.Batch, retainFrom types.Height) (uint64, error) {
+	span := prefixRange(stateTreeOrphanPrefix)
+	if retainFrom < math.MaxUint64 {
+		span.upper = keyListKey(stateTreeOrphanPrefix, retainFrom+1, nil)
+	}
+	lists := newIter(store.db, span)
+	defer lists.Close()
+	var pruned uint64
+	for valid := lists.First(); valid; valid = lists.Next() {
+		select {
+		case <-ctx.Done():
+			return 0, ctx.Err()
+		default:
+		}
+		batch.Delete(append([]byte(nil), lists.Key()...), nil)
+		if err := eachListedKey(lists.Value(), func(entry []byte) {
+			nodeKey := make([]byte, 0, len(stateTreePrefix)+len(entry))
+			batch.Delete(append(append(nodeKey, stateTreePrefix...), entry...), nil)
+			pruned++
+		}); err != nil {
+			return 0, err
+		}
+	}
+	if err := lists.Error(); err != nil {
+		return 0, err
+	}
+
+	records := newIter(store.db, prefixRange(stateTreeRootPrefix))
+	defer records.Close()
+	var namespace, last []byte
+	for valid := records.First(); valid; {
+		select {
+		case <-ctx.Done():
+			return 0, ctx.Err()
+		default:
+		}
+		key := records.Key()
+		if len(key) < len(stateTreeRootPrefix)+2+8 {
+			return 0, ErrInvalidStateRecord
+		}
+		group := key[:len(key)-8]
+		if !bytes.Equal(group, namespace) {
+			namespace, last = append(namespace[:0], group...), nil
+		}
+		if types.Height(binary.BigEndian.Uint64(key[len(key)-8:])) > retainFrom {
+			// The namespace's records from here on are retained; go on with the next namespace.
+			next := binary.BigEndian.AppendUint64(append([]byte(nil), group...), math.MaxUint64)
+			valid = records.SeekGE(next)
+			if valid && bytes.Equal(records.Key(), next) {
+				valid = records.Next()
+			}
+			continue
+		}
+		if last != nil {
+			batch.Delete(last, nil)
+		}
+		last = append([]byte(nil), key...)
+		valid = records.Next()
+	}
+	return pruned, records.Error()
 }
 
 // deleteNamespaceHistory drops every version of namespace.
