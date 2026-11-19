@@ -117,6 +117,10 @@ La ruta de commit del nodo escribe las finality proofs que completa el QC del bl
 
 El cálculo del state tree difiere el hash: un write marca las mitades que cambió, y cada node cambiado se hashea una sola vez, de abajo arriba, cuando se pide la root, una proof o los cambios. Así los nodes cercanos a la root, que reescribe cada write del bloque, se hashean una vez por bloque y no una por write. Los hashes, los nodes y las roots son los mismos que hasheando en cada write.
 
+## Sync periódico del WAL del mempool
+
+El WAL del mempool escribe cada cambio en el log y lo sincroniza cada 100 ms (`walSyncInterval`). Una admisión espera la escritura, no un sync. Una caída del proceso conserva cada registro; una caída de la máquina pierde como mucho las admisiones del último intervalo, que sus clientes vuelven a enviar. El registro de eliminación de un bloque confirmado se sincroniza antes del siguiente commit (`WaitDurable`).
+
 <!-- vexo-docs:technical-parity -->
 ## Apéndice de paridad técnica
 

@@ -85,6 +85,10 @@
 
 vote와 그 vote가 machine을 옮기는 safety state는 하나의 group record로, fsync 한 번에 쓰이고 복구 때 통째로 살거나 통째로 버려집니다. proposal record는 자체 fsync가 없고 proposer의 vote와 함께, proposal이 node를 떠나기 전에 쓰입니다. commit된 block의 mempool 제거 record는 다음 block이 commit되기 전에 durable해지며, 재시작은 마지막으로 commit된 block의 제거를 다시 합니다.
 
+## Mempool WAL의 주기적 sync
+
+mempool WAL은 변경마다 log에 쓰고 100 ms마다 sync합니다(`walSyncInterval`). admission은 쓰기만 기다리고 sync는 기다리지 않습니다. 그래서 프로세스 크래시에는 기록이 남고, 머신 크래시에는 마지막 주기의 admission만 잃으며 클라이언트가 다시 제출합니다. commit된 block의 제거 record는 다음 commit 전에 sync됩니다(`WaitDurable`).
+
 <!-- vexo-docs:technical-parity -->
 ## 기술 동등성 부록
 

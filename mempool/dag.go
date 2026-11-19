@@ -42,40 +42,47 @@ func (dag *DAG) CheckTx(ctx context.Context, tx types.Tx) error {
 	return dag.base.CheckTx(ctx, tx)
 }
 
-// AddTx admits tx and, when the DAG has a WAL, returns once the admission is durable.
+// AddTx admits tx and, when the DAG has a WAL, returns once the admission is written to the log;
+// the log is synced periodically (see WAL).
 //
 // The record is queued and the pool updated under the DAG lock, so the log lists the changes in
-// the order the pool made them; the wait for the sync happens after the lock is released, so
-// concurrent admissions share one sync. If ctx ends during that wait, AddTx returns ctx.Err()
+// the order the pool made them; the wait for the write happens after the lock is released, so
+// concurrent admissions share one write. If ctx ends during that wait, AddTx returns ctx.Err()
 // although the transaction is in the pool: its record is still written.
 func (dag *DAG) AddTx(ctx context.Context, tx types.Tx) error {
-	durable, err := dag.QueueTx(ctx, tx)
+	logged, err := dag.QueueTx(ctx, tx)
 	if err != nil {
 		return err
 	}
-	return durable.Wait(ctx)
+	return logged.Wait(ctx)
 }
 
-// Durable is a change of the pool whose WAL record is queued: Wait returns once the record is
-// durable, at once for a DAG without a WAL.
-type Durable struct {
+// Logged is a change of the pool whose WAL record is queued. Wait returns once the record is
+// written to the log, which a crash of the process keeps, and WaitDurable once it is synced, which
+// a crash of the machine keeps; both return at once for a DAG without a WAL.
+type Logged struct {
 	ticket walTicket
 }
 
-// Wait returns once the change is durable, or ctx.Err() if ctx ends first; the record is still
+// Wait returns once the record is written, or ctx.Err() if ctx ends first; the record is still
 // written then.
-func (durable Durable) Wait(ctx context.Context) error {
-	return durable.ticket.wait(ctx)
+func (logged Logged) Wait(ctx context.Context) error {
+	return logged.ticket.wait(ctx)
+}
+
+// WaitDurable returns once the record is written and synced, or ctx.Err() if ctx ends first.
+func (logged Logged) WaitDurable(ctx context.Context) error {
+	return logged.ticket.waitSynced(ctx)
 }
 
 // QueueTx admits tx like AddTx but returns as soon as its record is queued, so a caller that
-// orders admissions under a lock of its own can release it before the sync and let concurrent
+// orders admissions under a lock of its own can release it before the write and let concurrent
 // admissions share one. The transaction is in the pool when QueueTx returns.
-func (dag *DAG) QueueTx(ctx context.Context, tx types.Tx) (Durable, error) {
+func (dag *DAG) QueueTx(ctx context.Context, tx types.Tx) (Logged, error) {
 	dag.mu.Lock()
 	defer dag.mu.Unlock()
 	if err := dag.repairWAL(ctx); err != nil {
-		return Durable{}, err
+		return Logged{}, err
 	}
 	var ticket walTicket
 	err := dag.base.addTxWithHook(ctx, tx, func() error {
@@ -83,7 +90,7 @@ func (dag *DAG) QueueTx(ctx context.Context, tx types.Tx) (Durable, error) {
 		ticket, err = dag.queue(WALEvent{Op: walOpAddTx, Tx: tx})
 		return err
 	})
-	return Durable{ticket: ticket}, err
+	return Logged{ticket: ticket}, err
 }
 
 func (dag *DAG) BuildBatch(ctx context.Context, maxBytes int64, proposed map[types.Hash]struct{}) (Batch, error) {
@@ -115,21 +122,22 @@ func (dag *DAG) SenderTxs(ctx context.Context, sender string) ([]types.Tx, error
 }
 
 // MarkCommitted removes the committed transactions and, when the DAG has a WAL, returns once the
-// removal is durable; see AddTx for how the log is ordered and awaited.
+// removal is durable, synced and not only written: a removal a crash loses would replay committed
+// transactions as pending. See AddTx for how the log is ordered.
 func (dag *DAG) MarkCommitted(ctx context.Context, txs []types.Tx) error {
 	ticket, err := dag.markCommittedQueued(ctx, txs)
 	if err != nil {
 		return err
 	}
-	return ticket.wait(ctx)
+	return ticket.waitSynced(ctx)
 }
 
 // QueueMarkCommitted removes the committed transactions like MarkCommitted but returns as soon as
-// the removal's record is queued; the returned Durable reports when it is durable. The
+// the removal's record is queued; the returned Logged reports when it is written and durable. The
 // transactions are out of the pool when QueueMarkCommitted returns.
-func (dag *DAG) QueueMarkCommitted(ctx context.Context, txs []types.Tx) (Durable, error) {
+func (dag *DAG) QueueMarkCommitted(ctx context.Context, txs []types.Tx) (Logged, error) {
 	ticket, err := dag.markCommittedQueued(ctx, txs)
-	return Durable{ticket: ticket}, err
+	return Logged{ticket: ticket}, err
 }
 
 func (dag *DAG) markCommittedQueued(ctx context.Context, txs []types.Tx) (walTicket, error) {

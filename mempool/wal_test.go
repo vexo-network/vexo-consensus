@@ -318,21 +318,21 @@ func queuedRecords(wal *WAL) int {
 
 // syncGate holds back every sync of a WAL until it is opened, so a test decides which records are
 // queued behind the write in progress.
-type syncGate struct {
+type writeGate struct {
 	entered chan struct{}
 	release chan struct{}
 	once    sync.Once
-	syncs   atomic.Int64
+	writes  atomic.Int64
 }
 
-func gateSyncs(t *testing.T, wal *WAL) *syncGate {
+func gateWrites(t *testing.T, wal *WAL) *writeGate {
 	t.Helper()
-	gate := &syncGate{entered: make(chan struct{}, 1024), release: make(chan struct{})}
-	wal.syncFile = func(file *os.File) error {
-		gate.syncs.Add(1)
+	gate := &writeGate{entered: make(chan struct{}, 1024), release: make(chan struct{})}
+	wal.writeRecords = func(file *os.File, records []byte) error {
+		gate.writes.Add(1)
 		gate.entered <- struct{}{}
 		<-gate.release
-		return file.Sync()
+		return writeAll(file, records)
 	}
 	// Registered after the cleanup that closes the WAL, so it runs first: a failed test must not
 	// leave Close waiting for a sync that is never released.
@@ -340,16 +340,16 @@ func gateSyncs(t *testing.T, wal *WAL) *syncGate {
 	return gate
 }
 
-func (gate *syncGate) open() {
+func (gate *writeGate) open() {
 	gate.once.Do(func() { close(gate.release) })
 }
 
-func (gate *syncGate) waitEntered(t *testing.T) {
+func (gate *writeGate) waitEntered(t *testing.T) {
 	t.Helper()
 	select {
 	case <-gate.entered:
 	case <-time.After(walWaitTimeout):
-		t.Fatal("no sync started")
+		t.Fatal("no write started")
 	}
 }
 
@@ -680,33 +680,18 @@ func TestOpenWALDiscardsAJSONLog(t *testing.T) {
 	}
 }
 
-func TestWALAppendersAreDurableWhenTheyReturn(t *testing.T) {
+func TestWALAppendersAreWrittenWhenTheyReturn(t *testing.T) {
 	const appenders, rounds = 64, 4
 	ctx := context.Background()
 	wal, path := openTestWAL(t)
-
-	// Every sync records what the file holds when it completes. An appender that returns must find
-	// its record in a completed sync.
-	var mu sync.Mutex
-	synced := make(map[string]bool)
-	wal.syncFile = func(file *os.File) error {
-		if err := file.Sync(); err != nil {
-			return err
-		}
+	// An appender that returns must find its record in the file: a crash of the process keeps it.
+	written := func(tx string) bool {
 		data, err := os.ReadFile(path)
 		if err != nil {
-			return err
+			return false
 		}
 		scan, err := scanWAL(data)
-		if err != nil {
-			return err
-		}
-		mu.Lock()
-		defer mu.Unlock()
-		for _, event := range scan.events {
-			synced[string(event.Tx)] = true
-		}
-		return nil
+		return err == nil && replayedTxs(scan.events)[tx] == 1
 	}
 
 	var wg sync.WaitGroup
@@ -720,11 +705,8 @@ func TestWALAppendersAreDurableWhenTheyReturn(t *testing.T) {
 					t.Error(err)
 					return
 				}
-				mu.Lock()
-				durable := synced[tx]
-				mu.Unlock()
-				if !durable {
-					t.Errorf("%s returned before a sync made it durable", tx)
+				if !written(tx) {
+					t.Errorf("%s returned before it was written", tx)
 				}
 			}
 		}()
@@ -745,11 +727,11 @@ func TestWALAppendersAreDurableWhenTheyReturn(t *testing.T) {
 	}
 }
 
-func TestWALGroupCommitSharesOneSync(t *testing.T) {
+func TestWALGroupCommitSharesOneWrite(t *testing.T) {
 	const followers = 63
 	ctx := context.Background()
 	wal, path := openTestWAL(t)
-	gate := gateSyncs(t, wal)
+	gate := gateWrites(t, wal)
 
 	var wg sync.WaitGroup
 	appendTx := func(tx string) {
@@ -761,7 +743,7 @@ func TestWALGroupCommitSharesOneSync(t *testing.T) {
 			}
 		}()
 	}
-	// The first append writes alone and stalls in its sync; the others queue behind it.
+	// The first append writes alone and stalls in its write; the others queue behind it.
 	appendTx("leader")
 	gate.waitEntered(t)
 	for follower := range followers {
@@ -771,8 +753,8 @@ func TestWALGroupCommitSharesOneSync(t *testing.T) {
 	gate.open()
 	wg.Wait()
 
-	if syncs := gate.syncs.Load(); syncs != 2 {
-		t.Fatalf("expected one sync for the leader and one for the %d followers, got %d syncs", followers, syncs)
+	if writes := gate.writes.Load(); writes != 2 {
+		t.Fatalf("expected one write for the leader and one for the %d followers, got %d writes", followers, writes)
 	}
 	if counts := replayedTxs(readWALFile(t, path)); len(counts) != followers+1 {
 		t.Fatalf("expected %d records, got %d", followers+1, len(counts))
@@ -840,11 +822,11 @@ func TestWALCloseAfterConcurrentAppends(t *testing.T) {
 }
 
 // Close writes the records that were queued while a write was in progress, and their callers see
-// them durable.
+// them written.
 func TestWALCloseFlushesQueuedRecords(t *testing.T) {
 	ctx := context.Background()
 	wal, path := openTestWAL(t)
-	gate := gateSyncs(t, wal)
+	gate := gateWrites(t, wal)
 
 	var wg sync.WaitGroup
 	for _, tx := range []string{"leader", "queued-1", "queued-2"} {
@@ -877,7 +859,7 @@ func TestWALCloseFlushesQueuedRecords(t *testing.T) {
 func TestWALCancelledWaiterRecordIsStillWritten(t *testing.T) {
 	ctx := context.Background()
 	wal, path := openTestWAL(t)
-	gate := gateSyncs(t, wal)
+	gate := gateWrites(t, wal)
 
 	leader := make(chan error, 1)
 	go func() { leader <- wal.AppendAddTx(ctx, types.Tx("leader")) }()
@@ -915,7 +897,7 @@ func TestWALCancelledWaiterRecordIsStillWritten(t *testing.T) {
 func TestWALCloseWritesTheRecordsOfCancelledWaiters(t *testing.T) {
 	ctx := context.Background()
 	wal, path := openTestWAL(t)
-	gate := gateSyncs(t, wal)
+	gate := gateWrites(t, wal)
 
 	leader := make(chan error, 1)
 	go func() { leader <- wal.AppendAddTx(ctx, types.Tx("leader")) }()
@@ -997,13 +979,13 @@ func TestWALCancellationsNeverLoseAcknowledgedRecords(t *testing.T) {
 	}
 }
 
-// Admissions queue their records under the DAG lock and wait for the sync outside it, so
-// concurrent callers share one sync instead of taking one each in turn.
-func TestDurableDAGAdmissionsShareASync(t *testing.T) {
+// Admissions queue their records under the DAG lock and wait for the write outside it, so
+// concurrent callers share one write instead of taking one each in turn.
+func TestDurableDAGAdmissionsShareAWrite(t *testing.T) {
 	const followers = 8
 	ctx := context.Background()
 	dag, path := openTestDAG(t, FIFOConfig{})
-	gate := gateSyncs(t, dag.wal)
+	gate := gateWrites(t, dag.wal)
 
 	var wg sync.WaitGroup
 	admit := func(signer string) {
@@ -1024,8 +1006,8 @@ func TestDurableDAGAdmissionsShareASync(t *testing.T) {
 	gate.open()
 	wg.Wait()
 
-	if syncs := gate.syncs.Load(); syncs != 2 {
-		t.Fatalf("expected one sync for the leader and one for the followers, got %d", syncs)
+	if writes := gate.writes.Load(); writes != 2 {
+		t.Fatalf("expected one write for the leader and one for the followers, got %d", writes)
 	}
 	pooled, err := dag.SnapshotTxs(ctx)
 	if err != nil {
@@ -1159,7 +1141,7 @@ func TestDurableDAGCompactsWhileTransactionsArrive(t *testing.T) {
 func TestDurableDAGCompactionKeepsQueuedAdmissions(t *testing.T) {
 	ctx := context.Background()
 	dag, path := openTestDAG(t, FIFOConfig{})
-	gate := gateSyncs(t, dag.wal)
+	gate := gateWrites(t, dag.wal)
 
 	var wg sync.WaitGroup
 	for _, signer := range []string{"leader", "queued"} {
@@ -1203,7 +1185,7 @@ func TestDurableDAGCompactionKeepsQueuedAdmissions(t *testing.T) {
 func TestDurableDAGCompactionWaitsForTheWriteInProgress(t *testing.T) {
 	ctx := context.Background()
 	dag, path := openTestDAG(t, FIFOConfig{})
-	gate := gateSyncs(t, dag.wal)
+	gate := gateWrites(t, dag.wal)
 
 	leader := make(chan error, 1)
 	go func() { leader <- dag.AddTx(ctx, sendTx("alice", 1, 10)) }()
@@ -1235,12 +1217,12 @@ func TestDurableDAGCompactionWaitsForTheWriteInProgress(t *testing.T) {
 	}
 }
 
-// A caller that stops waiting for the sync gets its context error, but the transaction is in the
+// A caller that stops waiting for the write gets its context error, but the transaction is in the
 // pool and its record is still written.
 func TestDurableDAGAddTxContextErrorKeepsTheTransaction(t *testing.T) {
 	ctx := context.Background()
 	dag, path := openTestDAG(t, FIFOConfig{})
-	gate := gateSyncs(t, dag.wal)
+	gate := gateWrites(t, dag.wal)
 
 	leader := make(chan error, 1)
 	go func() { leader <- dag.AddTx(ctx, sendTx("leader", 1, 10)) }()
@@ -1298,17 +1280,17 @@ func TestDurableDAGRepairsAWALThatFailed(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			errSync := errors.New("injected sync failure")
-			var syncs atomic.Int32
-			dag.wal.syncFile = func(file *os.File) error {
-				if syncs.Add(1) == 1 {
-					return errSync
+			errWrite := errors.New("injected write failure")
+			var writes atomic.Int32
+			dag.wal.writeRecords = func(file *os.File, records []byte) error {
+				if writes.Add(1) == 1 {
+					return errWrite
 				}
-				return file.Sync()
+				return writeAll(file, records)
 			}
 			err := dag.AddTx(ctx, sendTx("alice", 2, 10))
-			if !errors.Is(err, ErrWALFailed) || !errors.Is(err, errSync) {
-				t.Fatalf("expected the sync failure, got %v", err)
+			if !errors.Is(err, ErrWALFailed) || !errors.Is(err, errWrite) {
+				t.Fatalf("expected the write failure, got %v", err)
 			}
 			if dag.Len() != 2 {
 				t.Fatalf("the transaction whose record failed stays in the pool, got %d", dag.Len())
@@ -1316,8 +1298,8 @@ func TestDurableDAGRepairsAWALThatFailed(t *testing.T) {
 			if err := dag.wal.AppendAddTx(ctx, types.Tx("direct")); !errors.Is(err, ErrWALFailed) {
 				t.Fatalf("expected a failed WAL to refuse appends, got %v", err)
 			}
-			if syncs.Load() != 1 {
-				t.Fatalf("a failed WAL must not write again, got %d syncs", syncs.Load())
+			if writes.Load() != 1 {
+				t.Fatalf("a failed WAL must not write again, got %d writes", writes.Load())
 			}
 
 			if err := change(ctx, dag); err != nil {
@@ -1499,5 +1481,163 @@ func TestCompactWALWhenGrownRewritesOnlyALogThatGrew(t *testing.T) {
 		if !bytes.Equal(replayed[index], pending[index]) {
 			t.Fatalf("restart replays transaction %d as %q", index, replayed[index][:8])
 		}
+	}
+}
+
+// syncedContents makes every sync of wal record the transactions the file holds once it completes,
+// so a test can tell whether a sync covered a record.
+func syncedContents(t *testing.T, wal *WAL, path string) func(tx string) bool {
+	t.Helper()
+	var mu sync.Mutex
+	synced := make(map[string]bool)
+	wal.syncFile = func(file *os.File) error {
+		if err := file.Sync(); err != nil {
+			return err
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		scan, err := scanWAL(data)
+		if err != nil {
+			return err
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		for _, event := range scan.events {
+			synced[string(event.Tx)] = true
+			for _, tx := range event.Txs {
+				synced["committed:"+string(tx)] = true
+			}
+		}
+		return nil
+	}
+	return func(tx string) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return synced[tx]
+	}
+}
+
+// An append does not wait for a sync, and the WAL syncs what was written within walSyncInterval
+// with no further append; a log with nothing written is not synced again.
+func TestWALSyncsWrittenRecordsPeriodically(t *testing.T) {
+	ctx := context.Background()
+	wal, path := openTestWAL(t)
+	synced := syncedContents(t, wal, path)
+	var syncs atomic.Int64
+	recordSync := wal.syncFile
+	wal.syncFile = func(file *os.File) error {
+		syncs.Add(1)
+		return recordSync(file)
+	}
+	if err := wal.AppendAddTx(ctx, types.Tx("tx")); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the periodic sync to cover the record", func() bool { return synced("tx") })
+	after := syncs.Load()
+	time.Sleep(5 * walSyncInterval)
+	if got := syncs.Load(); got != after {
+		t.Fatalf("a log with nothing new written was synced again: %d -> %d syncs", after, got)
+	}
+}
+
+// The removal of committed transactions returns only once a sync covered it, as a removal a crash
+// of the machine lost would replay committed transactions as pending.
+func TestDurableDAGMarkCommittedWaitsForTheSync(t *testing.T) {
+	ctx := context.Background()
+	dag, path := openTestDAG(t, FIFOConfig{})
+	synced := syncedContents(t, dag.wal, path)
+	tx := sendTx("alice", 1, 10)
+	if err := dag.AddTx(ctx, tx); err != nil {
+		t.Fatal(err)
+	}
+	for round := 0; round < 20; round++ {
+		next := sendTx("alice", uint64(round+2), 10)
+		if err := dag.AddTx(ctx, next); err != nil {
+			t.Fatal(err)
+		}
+		if err := dag.MarkCommitted(ctx, []types.Tx{tx}); err != nil {
+			t.Fatal(err)
+		}
+		if !synced("committed:" + string(tx)) {
+			t.Fatalf("round %d: MarkCommitted returned before a sync covered its record", round)
+		}
+		tx = next
+	}
+}
+
+// A queued removal is durable once WaitDurable returns, whether the periodic sync or the waiter
+// synced it.
+func TestLoggedWaitDurableSyncsWhatNoSyncCovered(t *testing.T) {
+	ctx := context.Background()
+	dag, path := openTestDAG(t, FIFOConfig{})
+	synced := syncedContents(t, dag.wal, path)
+	tx := sendTx("alice", 1, 10)
+	if err := dag.AddTx(ctx, tx); err != nil {
+		t.Fatal(err)
+	}
+	logged, err := dag.QueueMarkCommitted(ctx, []types.Tx{tx})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := logged.Wait(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := logged.WaitDurable(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if !synced("committed:" + string(tx)) {
+		t.Fatal("WaitDurable returned before a sync covered the record")
+	}
+	if err := (Logged{}).WaitDurable(ctx); err != nil {
+		t.Fatalf("a change without a WAL is durable at once: %v", err)
+	}
+}
+
+// A failed periodic sync stops the WAL like a failed write, and the next change of the DAG rewrites
+// the log from the pool.
+func TestDurableDAGRepairsAWALWhoseSyncFailed(t *testing.T) {
+	ctx := context.Background()
+	dag, path := openTestDAG(t, FIFOConfig{})
+	errSync := errors.New("injected sync failure")
+	var failed atomic.Bool
+	dag.wal.syncFile = func(file *os.File) error {
+		if failed.CompareAndSwap(false, true) {
+			return errSync
+		}
+		return file.Sync()
+	}
+	if err := dag.AddTx(ctx, sendTx("alice", 1, 10)); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the periodic sync to fail", func() bool { return errors.Is(dag.wal.failure(), errSync) })
+	if err := dag.wal.AppendAddTx(ctx, types.Tx("direct")); !errors.Is(err, ErrWALFailed) {
+		t.Fatalf("expected a WAL whose sync failed to refuse appends, got %v", err)
+	}
+	if err := dag.AddTx(ctx, sendTx("alice", 2, 10)); err != nil {
+		t.Fatalf("the DAG must repair the WAL: %v", err)
+	}
+	if err := dag.wal.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if reopened := reopenTestDAG(t, path, FIFOConfig{}); reopened.Len() != 2 {
+		t.Fatalf("expected both admissions after the repair, got %d", reopened.Len())
+	}
+}
+
+// Close syncs what was written since the last sync.
+func TestWALCloseSyncsWrittenRecords(t *testing.T) {
+	ctx := context.Background()
+	wal, path := openTestWAL(t)
+	synced := syncedContents(t, wal, path)
+	if err := wal.AppendAddTx(ctx, types.Tx("tx")); err != nil {
+		t.Fatal(err)
+	}
+	if err := wal.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if !synced("tx") {
+		t.Fatal("Close left a written record unsynced")
 	}
 }

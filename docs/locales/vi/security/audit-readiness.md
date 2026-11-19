@@ -76,6 +76,10 @@ Mọi sự kiện tx hoặc batch được chấp nhận đều bền vững tr�
 
 Một vote và safety state mà nó đưa máy trạng thái tới tạo thành một record nhóm, được ghi bằng một lần fsync và khi khôi phục thì được giữ trọn vẹn hoặc bỏ trọn vẹn. Record proposal không tốn fsync riêng mà được ghi cùng vote của proposer, trước khi proposal rời khỏi node. Record xóa khỏi mempool của block đã commit trở nên durable trước khi block kế tiếp được commit; khi khởi động lại, node làm lại việc xóa cho block được commit cuối cùng.
 
+## Sync định kỳ của mempool WAL
+
+Mempool WAL ghi mỗi thay đổi vào log và sync mỗi 100 ms (`walSyncInterval`). Admission chỉ chờ việc ghi, không chờ sync. Khi tiến trình crash, mọi record vẫn còn; khi máy crash, chỉ mất tối đa các admission của khoảng cuối, và client sẽ gửi lại. Record xóa của block đã commit được sync trước commit kế tiếp (`WaitDurable`).
+
 <!-- vexo-docs:technical-parity -->
 ## Phụ lục tương đương kỹ thuật
 

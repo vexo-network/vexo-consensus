@@ -76,6 +76,10 @@ Setiap event tx atau batch yang diterima sudah tahan lama sebelum pengirimannya 
 
 Sebuah vote dan safety state yang dituju mesin karenanya membentuk satu record grup, ditulis dengan satu fsync dan dipulihkan utuh atau dibuang utuh. Record proposal tidak memakai fsync sendiri dan ditulis bersama vote proposer, sebelum proposal meninggalkan node. Record penghapusan mempool dari blok yang di-commit sudah durable sebelum blok berikutnya di-commit; restart mengulang penghapusan untuk blok terakhir yang di-commit.
 
+## Sync berkala mempool WAL
+
+Mempool WAL menulis setiap perubahan ke log dan melakukan sync setiap 100 ms (`walSyncInterval`). Admission menunggu penulisan, bukan sync. Crash proses mempertahankan setiap record; crash mesin kehilangan paling banyak admission interval terakhir, yang dikirim ulang oleh kliennya. Record penghapusan blok yang di-commit di-sync sebelum commit berikutnya (`WaitDurable`).
+
 <!-- vexo-docs:technical-parity -->
 ## Lampiran Paritas Teknis
 

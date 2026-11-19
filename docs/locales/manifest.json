@@ -64,12 +64,12 @@
     "sdk/custom-crypto-backend.md": "a367d35beb1a1b5f8f8cea411dbfcc7eca4632166849211b58b9e9577c1092e3",
     "sdk/custom-storage-transport.md": "09e952add6cf9d50451ce57667716b41a07bf6a9ad2c6d554dd6a192f4f45c38",
     "sdk/rpc-api-versioning.md": "d1a2d32f949dbf089a58a80cca35d3f59848117dc94451c0284020c72acf45a2",
-    "security/audit-readiness.md": "abd6be2846d04df8072e8e20ccc04bb9015b5776855f2cf9a777f6e9fdde9143",
+    "security/audit-readiness.md": "3670225d72112c0e17329aaf75bd12a990a274fc74a96e7583b29021df91cc40",
     "specs/consensus-spec.md": "9b9b4ce7e4e6a505b5d0513e9b16519c15388afa0ccfc9922132d3bca8161f8d",
     "specs/evm-native-accounting.md": "847b2c8408a1b78bcfa187d426a5dda2796b11444f60b8feb9c73f62b2cbda80",
     "specs/finality-proof-format.md": "41eebd199ea5da02faf3757c27afd3fd6598561a52953d8e08b10ba29e95738f",
     "specs/networking-spec.md": "c326f508d06be27085fbb72c0c99d369e91fedc2eafcc3dfe853a962d8ed03e7",
-    "specs/storage-schema.md": "bc19588f6f2aa63e0c31538f1395c3961ad6f841d9b20aa38d814a3ee06077a0",
+    "specs/storage-schema.md": "afe33513ef5885687be6eec662e9e53b34f68062f47da5b7171604378bec12a3",
     "specs/tx-format.md": "2927bb118da6b43bb347261627af55182ae8ce9b92aab421735bf994096b0406",
     "specs/validator-lifecycle.md": "2e1e7d823927b4fc3b07ef4bed6676af481b6bee801ca7c41b2be0226853d6e6"
   }

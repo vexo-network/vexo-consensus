@@ -117,6 +117,10 @@ node の commit 経路は、block の QC が完成させる finality proof を b
 
 state tree の計算はハッシュを後回しにします。write は自分が変えた側だけを印し、root、proof、変更分を求められたときに、変わった node を下から上へ一度ずつハッシュします。そのためブロックのすべての write が書き直す root 付近の node は、write ごとではなくブロックごとに一度だけハッシュされます。ハッシュ、node、root は write ごとにハッシュする場合と同じです。
 
+## Mempool WAL の定期 sync
+
+mempool WAL は変更ごとに log に書き、100 ms ごとに sync します(`walSyncInterval`)。admission は書き込みだけを待ち、sync は待ちません。プロセスのクラッシュでは記録が残り、マシンのクラッシュでは最後の間隔の admission だけが失われ、クライアントが再提出します。commit された block の除去 record は次の commit の前に sync されます(`WaitDurable`)。
+
 <!-- vexo-docs:technical-parity -->
 ## 技術的同等性付録
 

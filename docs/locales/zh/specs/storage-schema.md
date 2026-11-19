@@ -117,6 +117,10 @@
 
 state tree 的计算会推迟哈希:write 只标记它改变的那一半,在请求 root、proof 或变更时,把改变过的 node 自下而上各哈希一次。因此区块中每个 write 都会重写的 root 附近的 node,每个区块只哈希一次,而不是每个 write 一次。得到的哈希、node 和 root 与每次 write 都哈希时相同。
 
+## Mempool WAL 的定期 sync
+
+mempool WAL 在每次变更时写入 log,每 100 ms sync 一次(`walSyncInterval`)。admission 只等待写入,不等待 sync。进程崩溃时记录仍在,机器崩溃时最多丢失最后一个间隔内的 admission,由客户端重新提交。已 commit block 的移除 record 在下一次 commit 之前完成 sync(`WaitDurable`)。
+
 <!-- vexo-docs:technical-parity -->
 ## 技术等价附录
 

@@ -78,7 +78,7 @@ type Node struct {
 	admissionMu sync.Mutex
 	// committedMark is the mempool removal of the last committed block's transactions, which the
 	// next commit waits for (see settleCommittedMark). commitMu guards it.
-	committedMark mempool.Durable
+	committedMark mempool.Logged
 	broadcastMu   sync.Mutex
 	runtime       *vexoruntime.Runtime
 	consensus     *consensus.StateMachine

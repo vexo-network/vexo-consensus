@@ -117,6 +117,10 @@ Jalur commit node menulis finality proof yang dilengkapi QC blok ke batch block/
 
 Perhitungan state tree menunda hash: write menandai sisi yang diubahnya, dan setiap node yang berubah di-hash sekali, dari bawah ke atas, saat root, proof, atau perubahan diminta. Dengan begitu node di dekat root, yang ditulis ulang oleh setiap write di blok, di-hash sekali per blok, bukan sekali per write. Hash, node, dan root tetap sama seperti hashing pada setiap write.
 
+## Sync berkala mempool WAL
+
+Mempool WAL menulis setiap perubahan ke log dan melakukan sync setiap 100 ms (`walSyncInterval`). Admission menunggu penulisan, bukan sync. Crash proses mempertahankan setiap record; crash mesin kehilangan paling banyak admission interval terakhir, yang dikirim ulang oleh kliennya. Record penghapusan blok yang di-commit di-sync sebelum commit berikutnya (`WaitDurable`).
+
 <!-- vexo-docs:technical-parity -->
 ## Lampiran Paritas Teknis
 

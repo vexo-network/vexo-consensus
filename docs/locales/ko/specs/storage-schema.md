@@ -121,6 +121,10 @@ node commit 경로는 block의 QC가 완성하는 finality proof를 block/state/
 
 state tree 계산은 해시를 미룹니다. write는 자기가 바꾼 쪽만 표시해 두고, root, proof, 변경분을 요청받을 때 바뀐 node를 아래에서 위로 한 번씩만 해시합니다. 그래서 블록의 모든 write가 다시 쓰는 root 근처 node는 write마다가 아니라 블록마다 한 번만 해시됩니다. 해시, node, root는 write마다 해시할 때와 같습니다.
 
+## Mempool WAL의 주기적 sync
+
+mempool WAL은 변경마다 log에 쓰고 100 ms마다 sync합니다(`walSyncInterval`). admission은 쓰기만 기다리고 sync는 기다리지 않습니다. 그래서 프로세스 크래시에는 기록이 남고, 머신 크래시에는 마지막 주기의 admission만 잃으며 클라이언트가 다시 제출합니다. commit된 block의 제거 record는 다음 commit 전에 sync됩니다(`WaitDurable`).
+
 <!-- vexo-docs:technical-parity -->
 ## 기술 동등성 부록
 

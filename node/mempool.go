@@ -38,6 +38,9 @@ var (
 	ErrAdmissionStateChanged = errors.New("committed state changed during transaction admission")
 )
 
+// SubmitTx admits tx into the pool and returns once its admission is written to the mempool WAL,
+// which a crash of the process keeps. The WAL is synced periodically, so a crash of the machine can
+// lose an admission of its last interval; the client submits such a transaction again.
 func (node *Node) SubmitTx(ctx context.Context, tx types.Tx) error {
 	if isUnsignedEvidenceTx(tx) {
 		// Evidence enters the mempool only through the evidence pool, as the one transaction of
@@ -324,43 +327,44 @@ func (node *Node) consumeTxGossip(ctx context.Context, events <-chan transport.E
 // just removed or invalidated, and adds the transaction. If a block did commit,
 // the checks run again against the new state.
 func (node *Node) admitMempoolTx(ctx context.Context, application app.Application, pool *mempool.DAG, tx types.Tx) error {
-	durable, err := node.queueMempoolTx(ctx, application, pool, tx)
+	logged, err := node.queueMempoolTx(ctx, application, pool, tx)
 	if err != nil {
 		return err
 	}
-	// The wait for the WAL sync runs without admissionMu, so concurrent admissions share one sync
-	// and a commit never waits behind it.
-	return durable.Wait(ctx)
+	// The wait for the WAL write runs without admissionMu, so concurrent admissions share one
+	// write and a commit never waits behind it. The write is not synced: the WAL syncs
+	// periodically, and a client submits a transaction a machine crash lost again.
+	return logged.Wait(ctx)
 }
 
 // queueMempoolTx admits tx like admitMempoolTx but returns once the record of the admission is
-// queued in the pool's WAL; the Durable waits for it.
-func (node *Node) queueMempoolTx(ctx context.Context, application app.Application, pool *mempool.DAG, tx types.Tx) (mempool.Durable, error) {
+// queued in the pool's WAL; the Logged waits for it.
+func (node *Node) queueMempoolTx(ctx context.Context, application app.Application, pool *mempool.DAG, tx types.Tx) (mempool.Logged, error) {
 	for attempt := 0; attempt < maxAdmissionAttempts; attempt++ {
 		checkedAt, _ := node.currentCommitHeight(ctx)
 		if err := checkAdmission(ctx, application, pool, tx); err != nil {
-			return mempool.Durable{}, err
+			return mempool.Logged{}, err
 		}
-		durable, added, err := node.addAdmittedTx(ctx, pool, tx, checkedAt)
+		logged, added, err := node.addAdmittedTx(ctx, pool, tx, checkedAt)
 		if err != nil || added {
-			return durable, err
+			return logged, err
 		}
 	}
-	return mempool.Durable{}, ErrAdmissionStateChanged
+	return mempool.Logged{}, ErrAdmissionStateChanged
 }
 
 // addAdmittedTx adds tx to the pool under admissionMu, provided the committed
 // height is still checkedAt, the one the checks read. added reports whether it
-// was; the error is then the pool's verdict on tx. The returned Durable waits
+// was; the error is then the pool's verdict on tx. The returned Logged waits
 // for the record of the addition.
-func (node *Node) addAdmittedTx(ctx context.Context, pool *mempool.DAG, tx types.Tx, checkedAt types.Height) (mempool.Durable, bool, error) {
+func (node *Node) addAdmittedTx(ctx context.Context, pool *mempool.DAG, tx types.Tx, checkedAt types.Height) (mempool.Logged, bool, error) {
 	node.admissionMu.Lock()
 	defer node.admissionMu.Unlock()
 	if committed, _ := node.currentCommitHeight(ctx); committed != checkedAt {
-		return mempool.Durable{}, false, nil
+		return mempool.Logged{}, false, nil
 	}
-	durable, err := pool.QueueTx(ctx, tx)
-	return durable, err == nil, err
+	logged, err := pool.QueueTx(ctx, tx)
+	return logged, err == nil, err
 }
 
 // checkAdmission decides whether tx may enter the pool. A transaction the

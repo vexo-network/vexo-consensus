@@ -117,6 +117,10 @@ Commit chỉ nén WAL của mempool khi nó chứa ít nhất 4 MiB và gấp đ
 
 Việc tính state tree trì hoãn việc băm: mỗi write chỉ đánh dấu các nửa nó đã đổi, và mỗi node bị đổi được băm một lần, từ dưới lên, khi root, proof hoặc các thay đổi được yêu cầu. Nhờ vậy các node gần root, vốn bị mọi write trong block ghi lại, chỉ được băm một lần mỗi block thay vì mỗi write. Hash, node và root vẫn giống như khi băm sau mỗi write.
 
+## Sync định kỳ của mempool WAL
+
+Mempool WAL ghi mỗi thay đổi vào log và sync mỗi 100 ms (`walSyncInterval`). Admission chỉ chờ việc ghi, không chờ sync. Khi tiến trình crash, mọi record vẫn còn; khi máy crash, chỉ mất tối đa các admission của khoảng cuối, và client sẽ gửi lại. Record xóa của block đã commit được sync trước commit kế tiếp (`WaitDurable`).
+
 <!-- vexo-docs:technical-parity -->
 ## Phụ lục tương đương kỹ thuật
 

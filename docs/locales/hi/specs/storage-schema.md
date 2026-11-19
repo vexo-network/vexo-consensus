@@ -117,6 +117,10 @@ Node का commit पथ block के QC द्वारा पूर्ण क
 
 State tree की गणना hashing को टालती है: write केवल उन हिस्सों को चिह्नित करता है जिन्हें उसने बदला, और root, proof या changes माँगे जाने पर हर बदला हुआ node नीचे से ऊपर एक बार hash होता है। इसलिए root के पास के nodes, जिन्हें block का हर write फिर से लिखता है, हर write पर नहीं बल्कि हर block में एक बार hash होते हैं। Hashes, nodes और roots वही रहते हैं जो हर write पर hash करने से मिलते।
 
+## Mempool WAL का आवधिक sync
+
+Mempool WAL हर बदलाव को log में लिखता है और हर 100 ms पर sync करता है (`walSyncInterval`)। Admission केवल write की प्रतीक्षा करता है, sync की नहीं। Process crash में हर record बचा रहता है; machine crash में अधिकतम अंतिम अंतराल के admissions खोते हैं, जिन्हें client फिर से भेजते हैं। Committed block का हटाने वाला record अगले commit से पहले sync होता है (`WaitDurable`)।
+
 <!-- vexo-docs:technical-parity -->
 ## तकनीकी समानता परिशिष्ट
 

@@ -117,6 +117,10 @@ O caminho de commit do nó grava as finality proofs que o QC do bloco completa n
 
 O cálculo do state tree adia o hash: um write marca as metades que mudou, e cada node alterado é hasheado uma única vez, de baixo para cima, quando a root, uma proof ou as mudanças são pedidas. Assim os nodes perto da root, que todo write do bloco reescreve, são hasheados uma vez por bloco, e não uma vez por write. Os hashes, os nodes e as roots são os mesmos de hashear a cada write.
 
+## Sync periódico do WAL do mempool
+
+O WAL do mempool grava cada mudança no log e o sincroniza a cada 100 ms (`walSyncInterval`). Uma admissão espera a gravação, não um sync. Uma queda do processo mantém cada registro; uma queda da máquina perde no máximo as admissões do último intervalo, que seus clientes reenviam. O registro de remoção de um bloco confirmado é sincronizado antes do próximo commit (`WaitDurable`).
+
 <!-- vexo-docs:technical-parity -->
 ## Apêndice de paridade técnica
 

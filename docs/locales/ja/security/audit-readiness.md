@@ -79,6 +79,10 @@
 
 vote と、その vote が machine を移す safety state は一つの group record として fsync 一回で書かれ、復旧時には丸ごと残るか丸ごと捨てられます。proposal record は自前の fsync を持たず、proposer の vote と一緒に、proposal が node を出る前に書かれます。commit された block の mempool 除去 record は次の block が commit される前に durable になり、再起動は最後に commit された block の除去をやり直します。
 
+## Mempool WAL の定期 sync
+
+mempool WAL は変更ごとに log に書き、100 ms ごとに sync します(`walSyncInterval`)。admission は書き込みだけを待ち、sync は待ちません。プロセスのクラッシュでは記録が残り、マシンのクラッシュでは最後の間隔の admission だけが失われ、クライアントが再提出します。commit された block の除去 record は次の commit の前に sync されます(`WaitDurable`)。
+
 <!-- vexo-docs:technical-parity -->
 ## 技術的同等性付録
 

@@ -82,6 +82,10 @@
 
 vote 与它使状态机进入的 safety state 组成一个 group record,一次 fsync 写入,恢复时要么整体保留要么整体丢弃。proposal record 没有自己的 fsync,它与 proposer 的 vote 一起、在 proposal 离开节点之前写入。已 commit block 的 mempool 移除 record 在下一个 block commit 之前变为 durable,重启会重做最后一个已 commit block 的移除。
 
+## Mempool WAL 的定期 sync
+
+mempool WAL 在每次变更时写入 log,每 100 ms sync 一次(`walSyncInterval`)。admission 只等待写入,不等待 sync。进程崩溃时记录仍在,机器崩溃时最多丢失最后一个间隔内的 admission,由客户端重新提交。已 commit block 的移除 record 在下一次 commit 之前完成 sync(`WaitDurable`)。
+
 <!-- vexo-docs:technical-parity -->
 ## 技术等价附录
 

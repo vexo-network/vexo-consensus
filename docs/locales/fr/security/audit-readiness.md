@@ -76,6 +76,10 @@ Chaque événement de tx ou de batch accepté est durable avant le retour de sa 
 
 Un vote et le safety state vers lequel il fait passer la machine forment un enregistrement groupé, écrit avec un seul fsync et récupéré en entier ou pas du tout. Un enregistrement de proposition n'a pas de fsync propre et il est écrit avec le vote du proposeur, avant que la proposition quitte le nœud. L'enregistrement de retrait du mempool d'un bloc commité est durable avant que le bloc suivant soit commité ; un redémarrage refait le retrait pour le dernier bloc commité.
 
+## Sync périodique du WAL du mempool
+
+Le WAL du mempool écrit chaque changement dans le log et le synchronise toutes les 100 ms (`walSyncInterval`). Une admission attend l'écriture, pas un sync. Un plantage du processus conserve chaque enregistrement ; un plantage de la machine perd au plus les admissions du dernier intervalle, que leurs clients soumettent de nouveau. L'enregistrement de retrait d'un bloc commité est synchronisé avant le commit suivant (`WaitDurable`).
+
 <!-- vexo-docs:technical-parity -->
 ## Annexe de parité technique
 

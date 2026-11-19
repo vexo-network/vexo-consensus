@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/vexo-network/vexo-consensus/types"
 )
@@ -56,6 +57,11 @@ const (
 	walCompactGrowth   = 2
 )
 
+// walSyncInterval is how often the WAL makes the records written since its last sync durable. An
+// append returns once its record is written to the file, which a crash of the process keeps; a
+// crash of the machine loses at most what was written in the last interval (see WAL).
+const walSyncInterval = 100 * time.Millisecond
+
 // walSpareBufferBytes bounds the write buffer kept for the next batch, so one huge batch does not
 // pin its memory.
 const walSpareBufferBytes = 1 << 20
@@ -70,7 +76,7 @@ type WALEvent struct {
 	Batch Batch
 }
 
-// WAL is the write-ahead log of the mempool. A change of the pool is appended to it before the
+// WAL is the write-ahead log of the mempool. A change of the pool is written to it before the
 // change is acknowledged, so a restart replays the pending transactions.
 //
 // The log is a sequence of records, each framed as
@@ -84,11 +90,14 @@ type WALEvent struct {
 // transactions, a count and that many 32-byte parent IDs, and the length-prefixed metadata. Every
 // length and count is a canonical uvarint.
 //
-// Appends are group committed. A caller queues its encoded record; the next write carries every
-// record queued so far and one sync makes them all durable, after which every caller of the group
-// is released. An append returns only once its record is durable, and records reach the file in
-// the order they were queued, so concurrent callers share the cost of a sync instead of paying
-// one each.
+// Appends are group written. A caller queues its encoded record; the next write carries every
+// record queued so far, after which every caller of the group is released. Records reach the file
+// in the order they were queued. An append returns once its record is written, not synced: the
+// pool is a cache of transactions their clients submit again, as on other chains, so a record
+// costs no sync of its own. A crash of the process keeps every written record, as the kernel holds
+// it; a goroutine syncs the log every walSyncInterval, so a crash of the machine loses at most the
+// records of the last interval. A caller that needs a record durable, as the removal of a committed
+// block's transactions must be before the next block commits, waits for it with waitSynced.
 //
 // After an I/O error the content of the file is unknown, so the WAL stops writing: every append
 // returns ErrWALFailed until Compact rewrites the log from the pool, which still holds every
@@ -100,8 +109,13 @@ type WAL struct {
 	flush chan struct{}
 	// file is the open log, written in append mode. Only the holder of the token touches it.
 	file *os.File
-	// syncFile makes the written records durable. It is a field so tests can count and fail it.
-	syncFile func(*os.File) error
+	// writeRecords appends records to the file, and syncFile makes the written records durable.
+	// They are fields so tests can count, hold and fail them.
+	writeRecords func(*os.File, []byte) error
+	syncFile     func(*os.File) error
+	// stop ends the goroutine that syncs the log, which closes stopped when it returns.
+	stop    chan struct{}
+	stopped chan struct{}
 
 	mu sync.Mutex
 	// pending is the batch the next write carries; nil while no record is queued.
@@ -116,6 +130,9 @@ type WAL struct {
 	// opened. They decide when compacting pays (walCompactMinBytes).
 	size      int64
 	compacted int64
+	// written counts the batches written to the file; synced is the count a sync made durable.
+	written uint64
+	synced  uint64
 }
 
 // walBatch is the records that one write and one sync make durable together.
@@ -128,6 +145,8 @@ type walBatch struct {
 	err error
 	// detached reports that a caller gave up waiting, so a goroutine of its own writes the batch.
 	detached bool
+	// seq is the batch's position among the written batches, set once it is written.
+	seq uint64
 }
 
 // walTicket is a record queued in a WAL. The zero ticket stands for a record that needs no
@@ -149,10 +168,13 @@ func OpenWAL(path string) (*WAL, error) {
 		return nil, err
 	}
 	wal := &WAL{
-		path:     path,
-		flush:    make(chan struct{}, 1),
-		file:     file,
-		syncFile: (*os.File).Sync,
+		path:         path,
+		flush:        make(chan struct{}, 1),
+		file:         file,
+		writeRecords: writeAll,
+		syncFile:     (*os.File).Sync,
+		stop:         make(chan struct{}),
+		stopped:      make(chan struct{}),
 	}
 	if _, err := wal.scanFile(); err != nil {
 		_ = file.Close()
@@ -161,7 +183,67 @@ func OpenWAL(path string) (*WAL, error) {
 	wal.compacted = wal.size
 	// The records synced later live in a file whose directory entry must be durable as well.
 	syncDirectory(filepath.Dir(path))
+	go wal.syncPeriodically()
 	return wal, nil
+}
+
+func writeAll(file *os.File, records []byte) error {
+	_, err := file.Write(records)
+	return err
+}
+
+// syncPeriodically syncs the records written since the last sync every walSyncInterval, until
+// Close stops it. A failed sync stops the WAL like a failed write.
+func (wal *WAL) syncPeriodically() {
+	defer close(wal.stopped)
+	ticker := time.NewTicker(walSyncInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-wal.stop:
+			return
+		case <-ticker.C:
+		}
+		if !wal.unsynced() {
+			continue
+		}
+		select {
+		case <-wal.stop:
+			return
+		case wal.flush <- struct{}{}:
+		}
+		_ = wal.syncWritten()
+		<-wal.flush
+	}
+}
+
+// unsynced reports that a written batch is not synced yet.
+func (wal *WAL) unsynced() bool {
+	wal.mu.Lock()
+	defer wal.mu.Unlock()
+	return wal.synced < wal.written
+}
+
+// syncWritten makes every written batch durable. The caller holds the token, so nothing is written
+// while it syncs.
+func (wal *WAL) syncWritten() error {
+	wal.mu.Lock()
+	target, failure := wal.written, wal.failed
+	done := wal.synced >= target
+	wal.mu.Unlock()
+	if failure != nil {
+		return failure
+	}
+	if done {
+		return nil
+	}
+	if err := wal.syncFile(wal.file); err != nil {
+		return wal.fail(err)
+	}
+	wal.mu.Lock()
+	wal.synced = max(wal.synced, target)
+	wal.mu.Unlock()
+	return nil
 }
 
 func openWALFile(path string) (*os.File, error) {
@@ -285,7 +367,7 @@ func (wal *WAL) queue(event WALEvent) (walTicket, error) {
 	return walTicket{wal: wal, batch: batch}, nil
 }
 
-// wait blocks until the record is durable or its write failed. A caller that finds no write in
+// wait blocks until the record is written or its write failed. A caller that finds no write in
 // progress performs the write for every record queued so far; the others sleep until the writer
 // releases them. If ctx ends first the call returns ctx.Err() and a goroutine writes the record
 // in the caller's place.
@@ -294,6 +376,34 @@ func (ticket walTicket) wait(ctx context.Context) error {
 		return nil
 	}
 	return ticket.wal.await(ctx, ticket.batch)
+}
+
+// waitSynced blocks until the record is durable: written, and synced by the periodic sync, by a
+// compaction or here, when no sync covered it yet.
+func (ticket walTicket) waitSynced(ctx context.Context) error {
+	if err := ticket.wait(ctx); err != nil || ticket.wal == nil {
+		return err
+	}
+	wal := ticket.wal
+	wal.mu.Lock()
+	durable := wal.synced >= ticket.batch.seq
+	wal.mu.Unlock()
+	if durable {
+		return nil
+	}
+	select {
+	case wal.flush <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	defer func() { <-wal.flush }()
+	wal.mu.Lock()
+	durable = wal.synced >= ticket.batch.seq
+	wal.mu.Unlock()
+	if durable {
+		return nil
+	}
+	return wal.syncWritten()
 }
 
 func (wal *WAL) await(ctx context.Context, batch *walBatch) error {
@@ -347,8 +457,8 @@ func (wal *WAL) detach(batch *walBatch) {
 	}
 }
 
-// flushPending writes the queued records with one write and one sync, then releases their
-// callers. The caller holds the token.
+// flushPending writes the queued records with one write, then releases their callers. The caller
+// holds the token.
 func (wal *WAL) flushPending() {
 	wal.mu.Lock()
 	batch := wal.pending
@@ -359,7 +469,7 @@ func (wal *WAL) flushPending() {
 		return
 	}
 	if failure == nil {
-		failure = wal.writeBatch(batch.buf)
+		batch.seq, failure = wal.writeBatch(batch.buf)
 	}
 	batch.err = failure
 	wal.mu.Lock()
@@ -371,20 +481,18 @@ func (wal *WAL) flushPending() {
 	close(batch.done)
 }
 
-// writeBatch appends records to the file and syncs it. Whatever goes wrong stops the WAL: after a
-// failed write or sync the kernel may have dropped part of the data, so appending behind it could
-// leave a hole in the middle of the log.
-func (wal *WAL) writeBatch(records []byte) error {
-	if _, err := wal.file.Write(records); err != nil {
-		return wal.fail(err)
-	}
-	if err := wal.syncFile(wal.file); err != nil {
-		return wal.fail(err)
+// writeBatch appends records to the file and returns the batch's position among the written ones.
+// Whatever goes wrong stops the WAL: after a failed write the kernel may have dropped part of the
+// data, so appending behind it could leave a hole in the middle of the log.
+func (wal *WAL) writeBatch(records []byte) (uint64, error) {
+	if err := wal.writeRecords(wal.file, records); err != nil {
+		return 0, wal.fail(err)
 	}
 	wal.mu.Lock()
+	defer wal.mu.Unlock()
 	wal.size += int64(len(records))
-	wal.mu.Unlock()
-	return nil
+	wal.written++
+	return wal.written, nil
 }
 
 // grown reports that the log has grown enough since it was last compacted for compacting it to
@@ -488,7 +596,9 @@ func (wal *WAL) Compact(ctx context.Context, dag *DAG) error {
 		return err
 	}
 	wal.mu.Lock()
+	// The snapshot is synced and holds everything written before it.
 	wal.size, wal.compacted = size, size
+	wal.synced = wal.written
 	wal.mu.Unlock()
 	return nil
 }
@@ -589,8 +699,8 @@ func (wal *WAL) swapFile(tempPath string) error {
 	return nil
 }
 
-// Close writes the records already queued, so their callers are released with their records
-// durable, and closes the file. Appends after Close fail with ErrWALClosed.
+// Close writes the records already queued, so their callers are released, syncs every written
+// record and closes the file. Appends after Close fail with ErrWALClosed.
 func (wal *WAL) Close() error {
 	wal.mu.Lock()
 	if wal.closed {
@@ -599,11 +709,18 @@ func (wal *WAL) Close() error {
 	}
 	wal.closed = true
 	wal.mu.Unlock()
+	close(wal.stop)
+	<-wal.stopped
 
 	wal.flush <- struct{}{}
 	defer func() { <-wal.flush }()
 	wal.flushPending()
-	return wal.file.Close()
+	// A WAL an earlier failure stopped has nothing to sync, and reported the failure already.
+	var syncErr error
+	if wal.failure() == nil {
+		syncErr = wal.syncWritten()
+	}
+	return errors.Join(syncErr, wal.file.Close())
 }
 
 func syncDirectory(path string) {

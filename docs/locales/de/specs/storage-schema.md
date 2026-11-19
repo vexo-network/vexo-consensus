@@ -117,6 +117,10 @@ Der Commit-Pfad des Nodes schreibt die Finality Proofs, die das QC des Blocks ve
 
 Eine Berechnung des State Tree hasht verzögert: Ein Write markiert die Hälften, die er geändert hat, und jeder geänderte Node wird einmal, von unten nach oben, gehasht, wenn Root, Proof oder die Änderungen verlangt werden. Die Nodes nahe der Root, die jeder Write des Blocks neu schreibt, werden so einmal pro Block statt einmal pro Write gehasht. Hashes, Nodes und Roots sind dieselben wie beim Hashen nach jedem Write.
 
+## Periodischer Sync des Mempool-WAL
+
+Das Mempool-WAL schreibt jede Änderung in das Log und synct es alle 100 ms (`walSyncInterval`). Eine Admission wartet auf den Write, nicht auf einen Sync. Ein Absturz des Prozesses behält jeden Record; ein Absturz der Maschine verliert höchstens die Admissions des letzten Intervalls, die ihre Clients erneut einreichen. Der Entfernungs-Record eines committeten Blocks wird vor dem nächsten Commit gesynct (`WaitDurable`).
+
 <!-- vexo-docs:technical-parity -->
 ## Anhang zur technischen Parität
 

@@ -76,6 +76,10 @@ Jedes angenommene Tx- oder Batch-Ereignis ist dauerhaft gespeichert, bevor seine
 
 Ein Vote und der Safety State, in den er die Maschine versetzt, bilden einen Group-Record, der mit einem fsync geschrieben und bei der Wiederherstellung ganz oder gar nicht übernommen wird. Ein Proposal-Record kostet keinen eigenen fsync und wird mit dem Vote des Proposers geschrieben, bevor das Proposal den Node verlässt. Der Mempool-Entfernungs-Record eines committeten Blocks ist durable, bevor der nächste Block committet wird; ein Neustart wiederholt die Entfernung für den zuletzt committeten Block.
 
+## Periodischer Sync des Mempool-WAL
+
+Das Mempool-WAL schreibt jede Änderung in das Log und synct es alle 100 ms (`walSyncInterval`). Eine Admission wartet auf den Write, nicht auf einen Sync. Ein Absturz des Prozesses behält jeden Record; ein Absturz der Maschine verliert höchstens die Admissions des letzten Intervalls, die ihre Clients erneut einreichen. Der Entfernungs-Record eines committeten Blocks wird vor dem nächsten Commit gesynct (`WaitDurable`).
+
 <!-- vexo-docs:technical-parity -->
 ## Anhang zur technischen Parität
 

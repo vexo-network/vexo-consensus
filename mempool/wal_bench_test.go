@@ -12,11 +12,11 @@ import (
 
 // benchmarkAppenders multiplies GOMAXPROCS to the number of concurrent
 // callers a busy node has: RPC handlers and gossip receivers all admit
-// transactions at once, and each waits for its own record to be durable.
+// transactions at once, and each waits for its own record to be written.
 const benchmarkAppenders = 8
 
 // countSyncs makes wal count its syncs, so a benchmark can report how many
-// records one sync made durable.
+// records one sync made durable; the WAL syncs every walSyncInterval.
 func countSyncs(wal *WAL) *atomic.Int64 {
 	var syncs atomic.Int64
 	wal.syncFile = func(file *os.File) error {
@@ -32,9 +32,9 @@ func reportRecordsPerSync(b *testing.B, syncs *atomic.Int64) {
 	}
 }
 
-// BenchmarkWALAppendParallel measures the durable append rate of concurrent
-// callers. Every append returns only after its record is on stable storage, so
-// the rate is bounded by the number of records one sync makes durable.
+// BenchmarkWALAppendParallel measures the append rate of concurrent callers.
+// Every append returns once its record is written; the periodic sync is off the
+// path, so the rate is bounded by the writes, which concurrent callers share.
 func BenchmarkWALAppendParallel(b *testing.B) {
 	wal, err := OpenWAL(filepath.Join(b.TempDir(), "mempool.wal"))
 	if err != nil {

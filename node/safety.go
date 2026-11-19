@@ -205,11 +205,11 @@ func (node *Node) reconcileCommitted(ctx context.Context) error {
 
 // settleCommittedMark waits until the mempool removal of the last committed block's transactions is
 // durable, which a commit must see before its block becomes durable: a restart repeats the removal
-// for the last committed block alone. The removal usually shares the sync of a later admission and
-// is durable already. A log the removal could not be written to is rewritten from the pool, which
-// no longer holds the transactions. The caller holds commitMu.
+// for the last committed block alone. The WAL's periodic sync has usually made the removal durable
+// already. A log the removal could not be written to is rewritten from the pool, which no longer
+// holds the transactions. The caller holds commitMu.
 func (node *Node) settleCommittedMark(ctx context.Context, runtime *vexoruntime.Runtime) error {
-	if err := node.committedMark.Wait(ctx); err != nil {
+	if err := node.committedMark.WaitDurable(ctx); err != nil {
 		if ctx.Err() != nil {
 			return err
 		}
@@ -217,7 +217,7 @@ func (node *Node) settleCommittedMark(ctx context.Context, runtime *vexoruntime.
 			return err
 		}
 	}
-	node.committedMark = mempool.Durable{}
+	node.committedMark = mempool.Logged{}
 	return nil
 }
 

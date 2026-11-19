@@ -76,6 +76,10 @@ Cada evento de tx o batch aceptado es durable antes de que su envío retorne. Lo
 
 Un voto y el safety state al que lleva a la máquina forman un registro de grupo, escrito con un solo fsync y recuperado entero o descartado entero. Un registro de propuesta no tiene fsync propio y se escribe con el voto del proponente, antes de que la propuesta salga del nodo. El registro de eliminación del mempool de un bloque confirmado es durable antes de que se confirme el siguiente bloque; un reinicio repite la eliminación del último bloque confirmado.
 
+## Sync periódico del WAL del mempool
+
+El WAL del mempool escribe cada cambio en el log y lo sincroniza cada 100 ms (`walSyncInterval`). Una admisión espera la escritura, no un sync. Una caída del proceso conserva cada registro; una caída de la máquina pierde como mucho las admisiones del último intervalo, que sus clientes vuelven a enviar. El registro de eliminación de un bloque confirmado se sincroniza antes del siguiente commit (`WaitDurable`).
+
 <!-- vexo-docs:technical-parity -->
 ## Apéndice de paridad técnica
 

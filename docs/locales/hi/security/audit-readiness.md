@@ -76,6 +76,10 @@ Audit सामग्री में BLS के साथ VRF adapter audit evi
 
 एक vote और वह safety state जिसमें वह machine को ले जाता है, एक group record बनाते हैं, जो एक fsync से लिखा जाता है और recovery में पूरा बचता है या पूरा छोड़ दिया जाता है। Proposal record का अपना fsync नहीं होता; वह proposer के vote के साथ, proposal के node से निकलने से पहले लिखा जाता है। Committed block का mempool हटाने वाला record अगले block के commit होने से पहले durable हो जाता है, और restart अंतिम committed block का हटाना दोहराता है।
 
+## Mempool WAL का आवधिक sync
+
+Mempool WAL हर बदलाव को log में लिखता है और हर 100 ms पर sync करता है (`walSyncInterval`)। Admission केवल write की प्रतीक्षा करता है, sync की नहीं। Process crash में हर record बचा रहता है; machine crash में अधिकतम अंतिम अंतराल के admissions खोते हैं, जिन्हें client फिर से भेजते हैं। Committed block का हटाने वाला record अगले commit से पहले sync होता है (`WaitDurable`)।
+
 <!-- vexo-docs:technical-parity -->
 ## तकनीकी समानता परिशिष्ट
 
