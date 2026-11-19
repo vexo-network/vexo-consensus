@@ -139,6 +139,10 @@ tree node는 버전으로 저장되고 이후 높이가 다시 쓰지 않습니�
 - `torph: | height | first entry`
 - `hidx: | height | first group`
 
+## Tree node cache의 디코딩 보관
+
+tree node cache는 현재 tree의 node를 디코딩된 형태로, half의 버전과 함께 최대 2^18개 보관합니다. 그래서 읽을 때 디코딩도 할당도 하지 않습니다.
+
 <!-- vexo-docs:technical-parity -->
 ## 기술 동등성 부록
 

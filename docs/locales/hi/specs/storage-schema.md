@@ -135,6 +135,10 @@ Tree nodes संस्करण के अनुसार रखे जात�
 - `torph: | height | first entry`
 - `hidx: | height | first group`
 
+## Tree node cache में decoded nodes
+
+Tree node cache वर्तमान trees के अधिकतम 2^18 nodes को decoded रूप में, उनके halves के संस्करणों के साथ रखता है, इसलिए read न decode करता है न memory allocate करता है।
+
 <!-- vexo-docs:technical-parity -->
 ## तकनीकी समानता परिशिष्ट
 

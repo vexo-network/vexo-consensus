@@ -135,6 +135,10 @@ Pengenal terkait:
 - `torph: | height | first entry`
 - `hidx: | height | first group`
 
+## Node terdekode di cache node
+
+Cache node tree menyimpan hingga 2^18 node dari tree saat ini dalam bentuk terdekode, beserta versi kedua half-nya, sehingga read tidak mendekode maupun mengalokasikan memori.
+
 <!-- vexo-docs:technical-parity -->
 ## Lampiran Paritas Teknis
 

@@ -135,6 +135,10 @@ tree node はバージョンごとに保存され、後の高さが書き換え�
 - `torph: | height | first entry`
 - `hidx: | height | first group`
 
+## Tree node cache のデコード済み保持
+
+tree node cache は現在の tree の node をデコード済みの形で、half のバージョンとともに最大 2^18 個保持します。そのため読み取りはデコードも割り当ても行いません。
+
 <!-- vexo-docs:technical-parity -->
 ## 技術的同等性付録
 

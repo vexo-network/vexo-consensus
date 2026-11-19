@@ -135,6 +135,10 @@ tree node 按版本存储,之后的高度不会重写。batch 把改变的 node 
 - `torph: | height | first entry`
 - `hidx: | height | first group`
 
+## Tree node cache 保存解码后的 node
+
+tree node cache 以解码后的形式保存当前 tree 的 node 及其 half 的版本,最多 2^18 个,因此读取既不解码也不分配内存。
+
 <!-- vexo-docs:technical-parity -->
 ## 技术等价附录
 

@@ -75,10 +75,14 @@ func stateTreeNamespacePrefix(namespace string) []byte {
 // stateTreeNodeKey is the key of the node at key of version in namespace's tree, built in one
 // allocation: a tree read builds one for every node it reads.
 func stateTreeNodeKey(namespace string, version types.Height, key stateproof.NodeKey) []byte {
-	encoded := make([]byte, 0, len(stateTreePrefix)+2+len(namespace)+8+key.EncodedLen())
-	encoded = appendStateTreeNamespaceID(encoded, stateTreePrefix, namespace)
-	encoded = binary.BigEndian.AppendUint64(encoded, uint64(version))
-	return key.AppendBytes(encoded)
+	return appendStateTreeNodeKey(make([]byte, 0, len(stateTreePrefix)+2+len(namespace)+8+key.EncodedLen()), namespace, version, key)
+}
+
+// appendStateTreeNodeKey appends the key stateTreeNodeKey returns to dst.
+func appendStateTreeNodeKey(dst []byte, namespace string, version types.Height, key stateproof.NodeKey) []byte {
+	dst = appendStateTreeNamespaceID(dst, stateTreePrefix, namespace)
+	dst = binary.BigEndian.AppendUint64(dst, uint64(version))
+	return key.AppendBytes(dst)
 }
 
 // stateTreeRootKey is the key of namespace's root record at height.
@@ -118,30 +122,30 @@ func encodeStoredNode(node stateproof.Node, left types.Height, right types.Heigh
 }
 
 // decodeStoredNode decodes a stored node and the versions of its halves.
-func decodeStoredNode(encoded []byte) (stateproof.Node, types.Height, types.Height, error) {
+func decodeStoredNode(encoded []byte) (storedNode, error) {
 	if len(encoded) < stateproof.EncodedNodeSize {
-		return stateproof.Node{}, 0, 0, stateproof.ErrInvalidNode
+		return storedNode{}, stateproof.ErrInvalidNode
 	}
 	node, err := stateproof.DecodeNode(encoded[:stateproof.EncodedNodeSize])
 	if err != nil {
-		return stateproof.Node{}, 0, 0, err
+		return storedNode{}, err
 	}
 	rest := encoded[stateproof.EncodedNodeSize:]
 	if node.Leaf != nil {
 		if len(rest) != 0 {
-			return stateproof.Node{}, 0, 0, stateproof.ErrInvalidNode
+			return storedNode{}, stateproof.ErrInvalidNode
 		}
-		return node, 0, 0, nil
+		return storedNode{node: node}, nil
 	}
 	left, read := binary.Uvarint(rest)
 	if read <= 0 {
-		return stateproof.Node{}, 0, 0, stateproof.ErrInvalidNode
+		return storedNode{}, stateproof.ErrInvalidNode
 	}
 	right, more := binary.Uvarint(rest[read:])
 	if more <= 0 || read+more != len(rest) {
-		return stateproof.Node{}, 0, 0, stateproof.ErrInvalidNode
+		return storedNode{}, stateproof.ErrInvalidNode
 	}
-	return node, types.Height(left), types.Height(right), nil
+	return storedNode{node: node, left: types.Height(left), right: types.Height(right)}, nil
 }
 
 // nodeVersions holds the versions of the stored nodes of one namespace tree that a reader can
@@ -150,10 +154,18 @@ type nodeVersions struct {
 	root    types.Height
 	hasRoot bool
 	halves  map[stateproof.NodeKey]types.Height
+	// key is the buffer the reader builds the database key of a node in.
+	key []byte
 }
 
-func newNodeVersions(root types.Height, hasRoot bool) *nodeVersions {
-	return &nodeVersions{root: root, hasRoot: hasRoot, halves: make(map[stateproof.NodeKey]types.Height)}
+// halvesPerWrite is about how many halves a tree learns per write: each write reads the nodes on
+// its path below those earlier writes read, about eight of them in a tree of tens of thousands of
+// keys, each with two halves. Sizing the map for them up front saves growing it while it fills.
+const halvesPerWrite = 8
+
+// newNodeVersions returns the versions of a tree whose root is of version root, sized for writes.
+func newNodeVersions(root types.Height, hasRoot bool, writes int) *nodeVersions {
+	return &nodeVersions{root: root, hasRoot: hasRoot, halves: make(map[stateproof.NodeKey]types.Height, writes*halvesPerWrite)}
 }
 
 // of returns the version of the stored node at key, and false when no node is stored there as far
@@ -167,15 +179,15 @@ func (versions *nodeVersions) of(key stateproof.NodeKey) (types.Height, bool) {
 }
 
 // learn keeps the versions of the halves of the node read at key.
-func (versions *nodeVersions) learn(key stateproof.NodeKey, node stateproof.Node, left types.Height, right types.Height) {
-	if node.Leaf != nil {
+func (versions *nodeVersions) learn(key stateproof.NodeKey, stored storedNode) {
+	if stored.node.Leaf != nil {
 		return
 	}
-	if node.Left != (types.Hash{}) {
-		versions.halves[key.Child(0)] = left
+	if stored.node.Left != (types.Hash{}) {
+		versions.halves[key.Child(0)] = stored.left
 	}
-	if node.Right != (types.Hash{}) {
-		versions.halves[key.Child(1)] = right
+	if stored.node.Right != (types.Hash{}) {
+		versions.halves[key.Child(1)] = stored.right
 	}
 }
 
@@ -190,13 +202,14 @@ type treeNodes struct {
 	versions   *nodeVersions
 }
 
-// newTreeNodes serves namespace's tree as it was at height; math.MaxUint64 serves the current one.
-func newTreeNodes(reader dbReader, namespace string, cache treeCacheView, height types.Height) (treeNodes, error) {
+// newTreeNodes serves namespace's tree as it was at height, math.MaxUint64 for the current one, to
+// a reader that applies about writes writes (zero for a proof).
+func newTreeNodes(reader dbReader, namespace string, cache treeCacheView, height types.Height, writes int) (treeNodes, error) {
 	root, hasRoot, err := treeRootAt(reader, namespace, height)
 	if err != nil {
 		return treeNodes{}, err
 	}
-	return treeNodes{reader: reader, namespace: namespace, cache: cache, historical: height != math.MaxUint64, versions: newNodeVersions(root, hasRoot)}, nil
+	return treeNodes{reader: reader, namespace: namespace, cache: cache, historical: height != math.MaxUint64, versions: newNodeVersions(root, hasRoot, writes)}, nil
 }
 
 func (nodes treeNodes) Node(key stateproof.NodeKey) (stateproof.Node, bool, error) {
@@ -204,27 +217,28 @@ func (nodes treeNodes) Node(key stateproof.NodeKey) (stateproof.Node, bool, erro
 	if !found {
 		return stateproof.Node{}, false, nil
 	}
-	dbKey := stateTreeNodeKey(nodes.namespace, version, key)
-	encoded, found := nodes.cache.get(dbKey)
+	dbKey := appendStateTreeNodeKey(nodes.versions.key[:0], nodes.namespace, version, key)
+	nodes.versions.key = dbKey
+	stored, found := nodes.cache.get(dbKey)
 	if !found {
-		value, err := getValue(nodes.reader, dbKey)
+		value, closer, err := nodes.reader.Get(dbKey)
 		if errors.Is(err, pebble.ErrNotFound) {
 			return stateproof.Node{}, false, fmt.Errorf("%w: namespace %q misses the node of version %d at depth %d", ErrStateTreeCorrupt, nodes.namespace, version, key.Depth)
 		}
 		if err != nil {
 			return stateproof.Node{}, false, err
 		}
-		if !nodes.historical {
-			nodes.cache.add(dbKey, value)
+		stored, err = decodeStoredNode(value)
+		closer.Close()
+		if err != nil {
+			return stateproof.Node{}, false, err
 		}
-		encoded = value
+		if !nodes.historical {
+			nodes.cache.add(dbKey, stored)
+		}
 	}
-	node, left, right, err := decodeStoredNode(encoded)
-	if err != nil {
-		return stateproof.Node{}, false, err
-	}
-	nodes.versions.learn(key, node, left, right)
-	return node, true, nil
+	nodes.versions.learn(key, stored)
+	return stored.node, true, nil
 }
 
 // stateTrees applies writes to the trees of the namespaces they touch.
@@ -237,6 +251,8 @@ type stateTrees struct {
 	// computed holds the computations of namespaces whose writes an earlier root computation
 	// already applied to the same trees.
 	computed map[string]computedTree
+	// writes counts the writes of each namespace the trees apply, when known, to size the trees.
+	writes map[string]int
 }
 
 func newStateTrees(reader dbReader, cache treeCacheView) *stateTrees {
@@ -246,6 +262,7 @@ func newStateTrees(reader dbReader, cache treeCacheView) *stateTrees {
 		trees:    make(map[string]*stateproof.Tree),
 		versions: make(map[string]*nodeVersions),
 		computed: make(map[string]computedTree),
+		writes:   make(map[string]int),
 	}
 }
 
@@ -258,6 +275,7 @@ func (trees *stateTrees) applyNamespaces(computed *computedTrees, writes []KVWri
 			trees.computed[namespace] = found
 			continue
 		}
+		trees.writes[namespace] = len(namespaceWrites)
 		for _, write := range namespaceWrites {
 			if err := trees.apply(write); err != nil {
 				return err
@@ -281,7 +299,7 @@ func (trees *stateTrees) tree(namespace string) (*stateproof.Tree, error) {
 	if tree, found := trees.trees[namespace]; found {
 		return tree, nil
 	}
-	nodes, err := newTreeNodes(trees.reader, namespace, trees.cache, math.MaxUint64)
+	nodes, err := newTreeNodes(trees.reader, namespace, trees.cache, math.MaxUint64, trees.writes[namespace])
 	if err != nil {
 		return nil, err
 	}
@@ -411,7 +429,7 @@ func (store *PebbleStore) RootWithWrites(ctx context.Context, namespace string, 
 	if found, ok := store.computed.get(namespace, cache, digest); ok {
 		return found.root, nil
 	}
-	nodes, err := newTreeNodes(snapshot, namespace, cache, math.MaxUint64)
+	nodes, err := newTreeNodes(snapshot, namespace, cache, math.MaxUint64, len(namespaceWrites))
 	if err != nil {
 		return types.Hash{}, err
 	}
@@ -551,7 +569,7 @@ func (store *PebbleStore) StateProof(ctx context.Context, namespace string, key 
 	}
 	snapshot, cache := store.snapshot()
 	defer snapshot.Close()
-	nodes, err := newTreeNodes(snapshot, namespace, cache, math.MaxUint64)
+	nodes, err := newTreeNodes(snapshot, namespace, cache, math.MaxUint64, 0)
 	if err != nil {
 		return types.Hash{}, nil, false, stateproof.Proof{}, err
 	}
@@ -600,7 +618,7 @@ func (store *PebbleStore) StateProofAt(ctx context.Context, height types.Height,
 	}
 	snapshot, cache := store.snapshot()
 	defer snapshot.Close()
-	nodes, err := newTreeNodes(snapshot, namespace, cache, height)
+	nodes, err := newTreeNodes(snapshot, namespace, cache, height, 0)
 	if err != nil {
 		return types.Hash{}, nil, false, stateproof.Proof{}, err
 	}

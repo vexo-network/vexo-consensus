@@ -106,7 +106,8 @@ func DecodeNode(encoded []byte) (Node, error) {
 	}
 }
 
-// NodeReader reads the stored nodes of one namespace tree.
+// NodeReader reads the stored nodes of one namespace tree. The leaf a returned node points to may
+// be shared with other readers: a Tree never modifies it, and Prove returns copies.
 type NodeReader interface {
 	Node(key NodeKey) (Node, bool, error)
 }

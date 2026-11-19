@@ -430,7 +430,7 @@ func TestTreeNodeCacheNeverServesOrKeepsTheNodesOfAnotherState(t *testing.T) {
 	if after == before {
 		t.Fatal("the block must change the root")
 	}
-	nodes, err := newTreeNodes(snapshot, "bank", view, math.MaxUint64)
+	nodes, err := newTreeNodes(snapshot, "bank", view, math.MaxUint64, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -638,7 +638,7 @@ func TestTreeNodeCacheHoldsOnlyTheCurrentTrees(t *testing.T) {
 		}
 	}
 	current := map[string]bool{}
-	nodes, err := newTreeNodes(storage.db, "bank", treeCacheView{}, math.MaxUint64)
+	nodes, err := newTreeNodes(storage.db, "bank", treeCacheView{}, math.MaxUint64, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -666,9 +666,20 @@ func TestTreeNodeCacheHoldsOnlyTheCurrentTrees(t *testing.T) {
 	if len(storage.treeCache.nodes) == 0 {
 		t.Fatal("the reads must have cached nodes")
 	}
-	for key := range storage.treeCache.nodes {
+	for key, cached := range storage.treeCache.nodes {
 		if !current[key] {
 			t.Fatalf("the cache holds a node that is not in the current tree: %x", key)
+		}
+		encoded, err := getValue(storage.db, []byte(key))
+		if err != nil {
+			t.Fatal(err)
+		}
+		stored, err := decodeStoredNode(encoded)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cached.left != stored.left || cached.right != stored.right || cached.node.Hash() != stored.node.Hash() {
+			t.Fatalf("the cache holds %+v at %x, the store %+v", cached, key, stored)
 		}
 	}
 }

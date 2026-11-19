@@ -5,6 +5,9 @@ import (
 	"sync"
 
 	"github.com/cockroachdb/pebble/v2"
+
+	"github.com/vexo-network/vexo-consensus/stateproof"
+	"github.com/vexo-network/vexo-consensus/types"
 )
 
 // Tree node cache.
@@ -13,9 +16,9 @@ import (
 // the runtime computes the roots of a block's writes for the app hash and the state roots before
 // it commits them. The nodes near a root are on nearly every path, so every block reads them again,
 // from SSTables that compactions keep rewriting. The store therefore keeps the encoded nodes of the
-// current trees in memory.
+// current trees in memory, decoded, so a read neither decodes nor allocates.
 //
-// The cache holds the stored value of a node key as of the current state, and only nodes that
+// The cache holds the stored node of a node key as of the current state, and only nodes that
 // exist. Every batch the store commits goes through writeBatch, which applies the batch's sets and
 // deletes of tree nodes to the cache, so the cache never holds a node the store no longer has, and
 // drops the nodes the batch orphans (see State trees), so it holds the nodes of the current trees
@@ -26,17 +29,24 @@ import (
 
 // treeNodeCacheCapacity bounds the nodes the cache holds. A node is admitted while the cache has
 // room, so the nodes near the roots, which every block reads first, stay; the cache holds at most
-// about 40 MiB.
+// about 50 MiB.
 const treeNodeCacheCapacity = 1 << 18
 
 type treeNodeCache struct {
 	mu         sync.Mutex
 	generation uint64
-	nodes      map[string][]byte
+	nodes      map[string]storedNode
+}
+
+// storedNode is a decoded stored node and the versions of its halves. The leaf a node points to is
+// shared by every reader of the node and never modified.
+type storedNode struct {
+	node        stateproof.Node
+	left, right types.Height
 }
 
 func newTreeNodeCache() *treeNodeCache {
-	return &treeNodeCache{nodes: make(map[string][]byte)}
+	return &treeNodeCache{nodes: make(map[string]storedNode)}
 }
 
 // treeCacheView is the cache as one reader may use it: at generation, or not at all.
@@ -53,22 +63,22 @@ func (cache *treeNodeCache) stable() (uint64, bool) {
 	return cache.generation, cache.generation%2 == 0
 }
 
-// get returns the encoded node at key when the cache is still at the view's generation and holds it.
-func (view treeCacheView) get(key []byte) ([]byte, bool) {
+// get returns the node at key when the cache is still at the view's generation and holds it.
+func (view treeCacheView) get(key []byte) (storedNode, bool) {
 	if view.cache == nil {
-		return nil, false
+		return storedNode{}, false
 	}
 	view.cache.mu.Lock()
 	defer view.cache.mu.Unlock()
 	if view.cache.generation != view.generation {
-		return nil, false
+		return storedNode{}, false
 	}
-	encoded, found := view.cache.nodes[string(key)]
-	return encoded, found
+	stored, found := view.cache.nodes[string(key)]
+	return stored, found
 }
 
-// add caches the encoded node a reader read at key at the view's generation.
-func (view treeCacheView) add(key []byte, encoded []byte) {
+// add caches the node a reader read at key at the view's generation.
+func (view treeCacheView) add(key []byte, stored storedNode) {
 	if view.cache == nil {
 		return
 	}
@@ -77,7 +87,7 @@ func (view treeCacheView) add(key []byte, encoded []byte) {
 	if view.cache.generation != view.generation || len(view.cache.nodes) >= treeNodeCacheCapacity {
 		return
 	}
-	view.cache.nodes[string(key)] = bytes.Clone(encoded)
+	view.cache.nodes[string(key)] = stored
 }
 
 // treeNodeWrite is a set (value non-nil) or delete of a tree node key in a batch.
@@ -139,19 +149,26 @@ func (cache *treeNodeCache) commit(batch *pebble.Batch, options *pebble.WriteOpt
 	cache.generation++
 	if err != nil {
 		// Whether the batch applied is unknown; nothing cached can be trusted.
-		cache.nodes = make(map[string][]byte)
+		cache.nodes = make(map[string]storedNode)
 		return err
 	}
 	for _, write := range writes {
 		switch {
 		case write.key == nil:
-			cache.nodes = make(map[string][]byte)
+			cache.nodes = make(map[string]storedNode)
 		case write.value == nil:
 			delete(cache.nodes, string(write.key))
 		default:
-			if _, held := cache.nodes[string(write.key)]; held || len(cache.nodes) < treeNodeCacheCapacity {
-				cache.nodes[string(write.key)] = bytes.Clone(write.value)
+			if _, held := cache.nodes[string(write.key)]; !held && len(cache.nodes) >= treeNodeCacheCapacity {
+				continue
 			}
+			stored, err := decodeStoredNode(write.value)
+			if err != nil {
+				// A node that does not decode is read, and refused, from the database.
+				delete(cache.nodes, string(write.key))
+				continue
+			}
+			cache.nodes[string(write.key)] = stored
 		}
 	}
 	return nil

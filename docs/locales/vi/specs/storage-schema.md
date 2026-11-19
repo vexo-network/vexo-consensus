@@ -135,6 +135,10 @@ Node của tree được lưu theo phiên bản và không height nào sau đó 
 - `torph: | height | first entry`
 - `hidx: | height | first group`
 
+## Node đã giải mã trong cache node
+
+Cache node của tree giữ tối đa 2^18 node của các tree hiện tại ở dạng đã giải mã, kèm phiên bản của hai nửa, nên mỗi lần đọc không giải mã cũng không cấp phát bộ nhớ.
+
 <!-- vexo-docs:technical-parity -->
 ## Phụ lục tương đương kỹ thuật
 

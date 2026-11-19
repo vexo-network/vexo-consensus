@@ -135,6 +135,10 @@ Identificadores relacionados:
 - `torph: | height | first entry`
 - `hidx: | height | first group`
 
+## Nodes decodificados no cache de nodes
+
+O cache de nodes do tree guarda até 2^18 nodes dos trees atuais já decodificados, com as versões de suas metades, de modo que uma leitura não decodifica nem aloca memória.
+
 <!-- vexo-docs:technical-parity -->
 ## Apêndice de paridade técnica
 

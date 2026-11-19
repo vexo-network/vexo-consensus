@@ -135,6 +135,10 @@ Zugehörige Bezeichner:
 - `torph: | height | first entry`
 - `hidx: | height | first group`
 
+## Dekodierte Nodes im Tree-Node-Cache
+
+Der Tree-Node-Cache hält bis zu 2^18 Nodes der aktuellen Trees dekodiert, mit den Versionen ihrer Hälften, sodass ein Read weder dekodiert noch alloziert.
+
 <!-- vexo-docs:technical-parity -->
 ## Anhang zur technischen Parität
 
