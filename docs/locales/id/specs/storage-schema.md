@@ -113,6 +113,10 @@ Commit hanya memadatkan WAL mempool bila isinya paling sedikit 4 MiB dan dua kal
 
 Jalur commit node menulis finality proof yang dilengkapi QC blok ke batch block/state/app-write yang sama (`CommitBlockStateWithWrites` menerimanya sebagai argumen terakhir). Dengan begitu satu commit hanya butuh satu durable write, bukan satu tambahan per proof. Proof yang akan ditolak store dikeluarkan dari batch dan disimpan oleh langkah setelah commit, yang melaporkan kegagalannya. Commit menghapus transaksinya dari pool dan mengantrekan record penghapusan tanpa menunggu sync-nya. Commit berikutnya menunggu record itu durable sebelum mengeksekusi bloknya, karena restart hanya mengulang penghapusan untuk blok terakhir yang di-commit. Record itu biasanya ikut dalam sync admission berikutnya.
 
+## Hash tertunda pada state tree
+
+Perhitungan state tree menunda hash: write menandai sisi yang diubahnya, dan setiap node yang berubah di-hash sekali, dari bawah ke atas, saat root, proof, atau perubahan diminta. Dengan begitu node di dekat root, yang ditulis ulang oleh setiap write di blok, di-hash sekali per blok, bukan sekali per write. Hash, node, dan root tetap sama seperti hashing pada setiap write.
+
 <!-- vexo-docs:technical-parity -->
 ## Lampiran Paritas Teknis
 

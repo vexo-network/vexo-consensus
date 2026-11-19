@@ -117,6 +117,10 @@ commit은 mempool WAL이 4 MiB 이상이면서 마지막 compaction(또는 열�
 
 node commit 경로는 block의 QC가 완성하는 finality proof를 block/state/app-write batch에 함께 씁니다(`CommitBlockStateWithWrites`의 마지막 인자). 그래서 commit은 proof마다 durable write를 하나씩 더 하지 않고 한 번으로 끝납니다. store가 거부할 proof는 batch에서 빠지고, commit 이후 단계가 저장하면서 실패를 보고합니다. commit은 자기 tx를 pool에서 제거하고 제거 record를 sync를 기다리지 않고 queue에 넣습니다. 다음 commit은 자기 block을 실행하기 전에 그 record가 durable해질 때까지 기다립니다. 재시작은 마지막으로 commit된 block의 제거만 다시 하기 때문입니다. 제거 record는 보통 뒤따르는 admission의 sync에 함께 실립니다.
 
+## State tree의 지연 해시
+
+state tree 계산은 해시를 미룹니다. write는 자기가 바꾼 쪽만 표시해 두고, root, proof, 변경분을 요청받을 때 바뀐 node를 아래에서 위로 한 번씩만 해시합니다. 그래서 블록의 모든 write가 다시 쓰는 root 근처 node는 write마다가 아니라 블록마다 한 번만 해시됩니다. 해시, node, root는 write마다 해시할 때와 같습니다.
+
 <!-- vexo-docs:technical-parity -->
 ## 기술 동등성 부록
 

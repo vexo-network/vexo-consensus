@@ -113,6 +113,10 @@ Um commit compacta o WAL do mempool só quando ele contém pelo menos 4 MiB e o 
 
 O caminho de commit do nó grava as finality proofs que o QC do bloco completa no mesmo batch de block/state/app-write (`CommitBlockStateWithWrites` as recebe como último argumento). Assim um commit custa uma escrita durável em vez de uma a mais por proof. Uma proof que o store recusaria fica fora do batch e é gravada pela etapa posterior ao commit, que relata a falha. Um commit remove suas transações do pool e enfileira o registro de remoção sem esperar seu sync. O commit seguinte espera esse registro ficar durável antes de executar seu bloco, porque um reinício refaz a remoção apenas para o último bloco confirmado. Em geral o registro compartilha o sync de uma admissão posterior.
 
+## Hash adiado do state tree
+
+O cálculo do state tree adia o hash: um write marca as metades que mudou, e cada node alterado é hasheado uma única vez, de baixo para cima, quando a root, uma proof ou as mudanças são pedidas. Assim os nodes perto da root, que todo write do bloco reescreve, são hasheados uma vez por bloco, e não uma vez por write. Os hashes, os nodes e as roots são os mesmos de hashear a cada write.
+
 <!-- vexo-docs:technical-parity -->
 ## Apêndice de paridade técnica
 

@@ -113,6 +113,10 @@
 
 节点 commit 路径把 block 的 QC 所完成的 finality proof 与 block/state/app-write batch 一起写入(`CommitBlockStateWithWrites` 的最后一个参数)。因此一次 commit 只需一次 durable write,而不是每个 proof 再多一次。store 会拒绝的 proof 不进入 batch,由 commit 之后的步骤保存并报告失败。commit 从 pool 中移除自己的交易,并在不等待 sync 的情况下把移除 record 放入队列。下一次 commit 在执行自己的 block 之前等待该 record 变为 durable,因为重启只会重做最后一个已 commit block 的移除。移除 record 通常与随后 admission 的 sync 共用一次。
 
+## State tree 的延迟哈希
+
+state tree 的计算会推迟哈希:write 只标记它改变的那一半,在请求 root、proof 或变更时,把改变过的 node 自下而上各哈希一次。因此区块中每个 write 都会重写的 root 附近的 node,每个区块只哈希一次,而不是每个 write 一次。得到的哈希、node 和 root 与每次 write 都哈希时相同。
+
 <!-- vexo-docs:technical-parity -->
 ## 技术等价附录
 

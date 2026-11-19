@@ -113,6 +113,10 @@ Ein Commit kompaktiert das Mempool-WAL nur, wenn es mindestens 4 MiB und das Dop
 
 Der Commit-Pfad des Nodes schreibt die Finality Proofs, die das QC des Blocks vervollständigt, in denselben block/state/app-write-Batch (`CommitBlockStateWithWrites` erhält sie als letztes Argument). Ein Commit kostet so einen durable Write statt eines weiteren pro Proof. Ein Proof, den der Store ablehnen würde, bleibt außerhalb des Batches und wird vom Schritt nach dem Commit gespeichert, der den Fehler meldet. Ein Commit entfernt seine Transaktionen aus dem Pool und reiht den Entfernungs-Record ein, ohne auf dessen Sync zu warten. Der nächste Commit wartet, bis dieser Record durable ist, bevor er seinen Block ausführt, denn ein Neustart wiederholt die Entfernung nur für den zuletzt committeten Block. Meist teilt sich der Record den Sync einer späteren Admission.
 
+## Verzögertes Hashen des State Tree
+
+Eine Berechnung des State Tree hasht verzögert: Ein Write markiert die Hälften, die er geändert hat, und jeder geänderte Node wird einmal, von unten nach oben, gehasht, wenn Root, Proof oder die Änderungen verlangt werden. Die Nodes nahe der Root, die jeder Write des Blocks neu schreibt, werden so einmal pro Block statt einmal pro Write gehasht. Hashes, Nodes und Roots sind dieselben wie beim Hashen nach jedem Write.
+
 <!-- vexo-docs:technical-parity -->
 ## Anhang zur technischen Parität
 

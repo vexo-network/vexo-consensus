@@ -1,6 +1,7 @@
 package stateproof
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -170,7 +171,11 @@ func TestTreeWritesMatchTheTreeBuiltFromThePairs(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		nodes.apply(tree.Changes())
+		changes, err := tree.Changes()
+		if err != nil {
+			t.Fatal(err)
+		}
+		nodes.apply(changes)
 
 		pairs := make([]Pair, 0, len(state))
 		for key, value := range state {
@@ -226,5 +231,97 @@ func TestNodesRoundTrip(t *testing.T) {
 	}
 	if NodeKeyOf(types.Hash{0xff, 0xff}, 9).Prefix != (types.Hash{0xff, 0x80}) {
 		t.Fatal("a node key keeps only the bits of its depth")
+	}
+}
+
+// A tree hashes the nodes its writes changed only when asked for its root, a proof or its changes;
+// every answer in between writes must still be the one of the state written so far, including a
+// delete of an absent key whose position holds another key's leaf, which leaves that subtree as
+// stored, and no change may keep a half that was never hashed.
+func TestTreeAnswersBetweenWritesMatchTheWrittenState(t *testing.T) {
+	random := rand.New(rand.NewSource(11))
+	nodes := memoryNodes{}
+	state := map[string][]byte{}
+	pairsOf := func() []Pair {
+		pairs := make([]Pair, 0, len(state))
+		for key, value := range state {
+			pairs = append(pairs, Pair{Key: []byte(key), Value: value})
+		}
+		return pairs
+	}
+	for round := 0; round < 40; round++ {
+		tree := NewTree("bank", nodes)
+		for write := 0; write < 1+random.Intn(40); write++ {
+			key := fmt.Sprintf("k/%d", random.Intn(300))
+			if random.Intn(3) == 0 {
+				if err := tree.Delete([]byte(key)); err != nil {
+					t.Fatal(err)
+				}
+				delete(state, key)
+			} else {
+				value := []byte(fmt.Sprintf("v%d", random.Intn(1000)))
+				if err := tree.Set([]byte(key), value); err != nil {
+					t.Fatal(err)
+				}
+				state[key] = value
+			}
+			if random.Intn(4) != 0 {
+				continue
+			}
+			// The proof is asked for first, so it cannot rely on a root computation hashing the tree.
+			want := mustRoot(t, "bank", pairsOf())
+			probe := []byte(fmt.Sprintf("k/%d", random.Intn(300)))
+			proof, _, err := tree.Prove(probe)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if value, present := state[string(probe)]; present {
+				if !VerifyMembership("bank", probe, value, proof, want) {
+					t.Fatalf("round %d: proof of %s between writes must verify", round, probe)
+				}
+			} else if !VerifyNonMembership("bank", probe, proof, want) {
+				t.Fatalf("round %d: absence proof of %s between writes must verify", round, probe)
+			}
+			if root, err := tree.Root(); err != nil || root != want {
+				t.Fatalf("round %d: root between writes %x (%v), want %x", round, root, err, want)
+			}
+		}
+		changes, err := tree.Changes()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for index, change := range changes {
+			if index > 0 && bytes.Compare(changes[index-1].Key.Bytes(), change.Key.Bytes()) >= 0 {
+				t.Fatalf("round %d: changes out of key order", round)
+			}
+			if change.Node != nil && change.Node.Leaf == nil && (change.Node.Left == unhashedHalf || change.Node.Right == unhashedHalf) {
+				t.Fatalf("round %d: change %+v keeps an unhashed half", round, change.Key)
+			}
+		}
+		nodes.apply(changes)
+		if root, err := NewTree("bank", nodes).Root(); err != nil || root != mustRoot(t, "bank", pairsOf()) {
+			t.Fatalf("round %d: stored root %x (%v) differs from the written state", round, root, err)
+		}
+	}
+}
+
+// Deleting an absent key whose position holds the leaf of another key changes nothing.
+func TestDeletingAnAbsentKeyUnderAnotherLeafKeepsTheTree(t *testing.T) {
+	nodes := memoryNodes{}
+	pairs := testPairs(64)
+	built, err := Build("bank", pairs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nodes.apply(built)
+	want := mustRoot(t, "bank", pairs)
+	for index := 0; index < 200; index++ {
+		tree := NewTree("bank", nodes)
+		if err := tree.Delete([]byte(fmt.Sprintf("absent/%d", index))); err != nil {
+			t.Fatal(err)
+		}
+		if root, err := tree.Root(); err != nil || root != want {
+			t.Fatalf("deleting absent/%d changed the root to %x (%v)", index, root, err)
+		}
 	}
 }

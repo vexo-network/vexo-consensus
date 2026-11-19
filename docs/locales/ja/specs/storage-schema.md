@@ -113,6 +113,10 @@ commit は mempool WAL が 4 MiB 以上で、かつ最後の compaction(また�
 
 node の commit 経路は、block の QC が完成させる finality proof を block/state/app-write batch に一緒に書きます(`CommitBlockStateWithWrites` の最後の引数)。そのため commit は proof ごとに durable write を一つ増やさず、一回で済みます。store が拒否する proof は batch から外され、commit 後の処理が保存して失敗を報告します。commit は自分の tx を pool から除去し、除去 record を sync を待たずに queue に入れます。次の commit は自分の block を実行する前に、その record が durable になるまで待ちます。再起動は最後に commit された block の除去だけをやり直すからです。除去 record は通常、後続の admission の sync に相乗りします。
 
+## State tree の遅延ハッシュ
+
+state tree の計算はハッシュを後回しにします。write は自分が変えた側だけを印し、root、proof、変更分を求められたときに、変わった node を下から上へ一度ずつハッシュします。そのためブロックのすべての write が書き直す root 付近の node は、write ごとではなくブロックごとに一度だけハッシュされます。ハッシュ、node、root は write ごとにハッシュする場合と同じです。
+
 <!-- vexo-docs:technical-parity -->
 ## 技術的同等性付録
 

@@ -43,32 +43,39 @@ var ErrStateTreeCorrupt = errors.New("state tree does not match the stored state
 // stateTreeNamespaceID identifies namespace under the tree prefixes: its length, then its name, so
 // no namespace's keys are a prefix of another's.
 func stateTreeNamespaceID(prefix []byte, namespace string) []byte {
-	key := append([]byte(nil), prefix...)
-	var length [2]byte
-	binary.BigEndian.PutUint16(length[:], uint16(len(namespace)))
-	key = append(key, length[:]...)
-	return append(key, []byte(namespace)...)
+	return appendStateTreeNamespaceID(make([]byte, 0, len(prefix)+2+len(namespace)), prefix, namespace)
+}
+
+func appendStateTreeNamespaceID(dst []byte, prefix []byte, namespace string) []byte {
+	dst = append(dst, prefix...)
+	dst = binary.BigEndian.AppendUint16(dst, uint16(len(namespace)))
+	return append(dst, namespace...)
 }
 
 func stateTreeNamespacePrefix(namespace string) []byte {
 	return stateTreeNamespaceID(stateTreePrefix, namespace)
 }
 
+// stateTreeNodeKey is the key of a tree node under namespace, built in one allocation: a tree
+// read builds one for every node it reads.
 func stateTreeNodeKey(namespace string, key stateproof.NodeKey) []byte {
-	return append(stateTreeNamespacePrefix(namespace), key.Bytes()...)
+	return stateTreeNamespacedNodeKey(stateTreePrefix, namespace, key)
 }
 
 // stateTreeHistoryGroup is the prefix every version of a node shares; encoded node keys are
 // prefix-free (their depth fixes their length), so the group is exact.
 func stateTreeHistoryGroup(namespace string, key stateproof.NodeKey) []byte {
-	return append(stateTreeNamespaceID(stateTreeHistoryPrefix, namespace), key.Bytes()...)
+	return stateTreeNamespacedNodeKey(stateTreeHistoryPrefix, namespace, key)
+}
+
+func stateTreeNamespacedNodeKey(prefix []byte, namespace string, key stateproof.NodeKey) []byte {
+	encoded := make([]byte, 0, len(prefix)+2+len(namespace)+key.EncodedLen())
+	return key.AppendBytes(appendStateTreeNamespaceID(encoded, prefix, namespace))
 }
 
 func stateTreeHistoryKey(group []byte, height types.Height) []byte {
-	key := append([]byte(nil), group...)
-	var buffer [8]byte
-	binary.BigEndian.PutUint64(buffer[:], uint64(height))
-	return append(key, buffer[:]...)
+	key := append(make([]byte, 0, len(group)+8), group...)
+	return binary.BigEndian.AppendUint64(key, uint64(height))
 }
 
 // treeNodes serves the stored nodes of one namespace tree.
@@ -170,9 +177,9 @@ func (trees *stateTrees) applyNamespaces(computed *computedTrees, writes []KVWri
 }
 
 // changes returns the node changes of namespace.
-func (trees *stateTrees) changes(namespace string) []stateproof.NodeChange {
+func (trees *stateTrees) changes(namespace string) ([]stateproof.NodeChange, error) {
 	if changes, found := trees.computed[namespace]; found {
-		return changes
+		return changes, nil
 	}
 	return trees.trees[namespace].Changes()
 }
@@ -211,7 +218,11 @@ func (trees *stateTrees) persist(batch *pebble.Batch, versioned bool, height typ
 	}
 	sort.Strings(namespaces)
 	for _, namespace := range namespaces {
-		for _, change := range trees.changes(namespace) {
+		changes, err := trees.changes(namespace)
+		if err != nil {
+			return err
+		}
+		for _, change := range changes {
 			if versioned {
 				if err := trees.recordVersion(batch, namespace, change.Key, height, existing); err != nil {
 					return err
@@ -286,7 +297,11 @@ func (store *PebbleStore) RootWithWrites(ctx context.Context, namespace string, 
 	if err != nil {
 		return types.Hash{}, err
 	}
-	store.computed.put(namespace, cache, computedTree{digest: digest, root: root, changes: tree.Changes()})
+	changes, err := tree.Changes()
+	if err != nil {
+		return types.Hash{}, err
+	}
+	store.computed.put(namespace, cache, computedTree{digest: digest, root: root, changes: changes})
 	return root, nil
 }
 

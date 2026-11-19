@@ -113,6 +113,10 @@ commit mempool WAL को तभी compact करता है जब उसम
 
 Node का commit पथ block के QC द्वारा पूर्ण की गई finality proofs को उसी block/state/app-write batch में लिखता है (`CommitBlockStateWithWrites` उन्हें अंतिम argument के रूप में लेता है)। इसलिए एक commit में हर proof के लिए एक और durable write के बजाय केवल एक write लगता है। जिस proof को store अस्वीकार करेगा वह batch से बाहर रहता है और commit के बाद का चरण उसे सहेजते हुए विफलता की रिपोर्ट करता है। Commit अपने transactions को pool से हटाता है और हटाने का record sync की प्रतीक्षा किए बिना queue में डालता है। अगला commit अपना block execute करने से पहले उस record के durable होने की प्रतीक्षा करता है, क्योंकि restart केवल अंतिम committed block का हटाना दोहराता है। आमतौर पर यह record बाद के admission के sync में साथ लिख जाता है।
 
+## State tree की विलंबित hashing
+
+State tree की गणना hashing को टालती है: write केवल उन हिस्सों को चिह्नित करता है जिन्हें उसने बदला, और root, proof या changes माँगे जाने पर हर बदला हुआ node नीचे से ऊपर एक बार hash होता है। इसलिए root के पास के nodes, जिन्हें block का हर write फिर से लिखता है, हर write पर नहीं बल्कि हर block में एक बार hash होते हैं। Hashes, nodes और roots वही रहते हैं जो हर write पर hash करने से मिलते।
+
 <!-- vexo-docs:technical-parity -->
 ## तकनीकी समानता परिशिष्ट
 

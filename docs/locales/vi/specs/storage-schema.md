@@ -113,6 +113,10 @@ Commit chỉ nén WAL của mempool khi nó chứa ít nhất 4 MiB và gấp đ
 
 Đường commit của node ghi các finality proof mà QC của block hoàn tất vào cùng batch block/state/app-write (`CommitBlockStateWithWrites` nhận chúng làm tham số cuối). Vì vậy một commit chỉ tốn một lần ghi durable thay vì thêm một lần cho mỗi proof. Proof mà store sẽ từ chối được để ngoài batch và do bước sau commit lưu, bước này báo lỗi. Commit xóa các giao dịch của mình khỏi pool và đưa record xóa vào hàng đợi mà không chờ sync. Commit kế tiếp chờ record đó durable rồi mới thực thi block của mình, vì khi khởi động lại node chỉ làm lại việc xóa cho block được commit cuối cùng. Record này thường đi cùng lần sync của một admission sau đó.
 
+## Băm trì hoãn của state tree
+
+Việc tính state tree trì hoãn việc băm: mỗi write chỉ đánh dấu các nửa nó đã đổi, và mỗi node bị đổi được băm một lần, từ dưới lên, khi root, proof hoặc các thay đổi được yêu cầu. Nhờ vậy các node gần root, vốn bị mọi write trong block ghi lại, chỉ được băm một lần mỗi block thay vì mỗi write. Hash, node và root vẫn giống như khi băm sau mỗi write.
+
 <!-- vexo-docs:technical-parity -->
 ## Phụ lục tương đương kỹ thuật
 
